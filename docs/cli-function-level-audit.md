@@ -108,3 +108,21 @@ by Issue #1120 is therefore not present; this audit is consistent with
 tree and formerly unique command tests are listed there. Its completeness
 statement is limited to the removed package's command surface and does not
 claim an individual runtime test for every option in the canonical CLI.
+
+## Highest-risk gap closure (Issue #1145)
+
+The highest-risk output-path gap was in `iln export`: CSV fields were joined
+without quoting, so commas/newlines could shift columns, and spreadsheet
+formula prefixes in ledger-derived values were emitted unchanged. The export
+now quotes CSV-special values and prefixes formula-leading cells with an
+apostrophe before serialization. A CLI regression test covers both cases.
+This closes the export serialization risk without changing the documented
+column order or CSV header. A focused CLI regression test covers quoting and
+formula neutralization; its execution status is reported separately in the PR
+verification summary.
+
+Other limitations remain explicit: the watch command polls until terminal
+state, and the unfiltered export remains proportional to the total on-chain
+invoice count. Those behaviors are not altered by this focused fix; a future
+bounded-pagination design should address large exports without silently
+truncating results.

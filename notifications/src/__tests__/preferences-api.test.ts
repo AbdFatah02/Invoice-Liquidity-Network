@@ -106,6 +106,64 @@ describe('GET /preferences/:address/export (#741)', () => {
   });
 });
 
+describe('POST /preferences/erasure/:address', () => {
+  beforeEach(() => {
+    process.env.ERASURE_OPERATOR_TOKEN = 'operator-test-token-that-is-at-least-32-chars';
+  });
+
+  afterEach(() => {
+    delete process.env.ERASURE_OPERATOR_TOKEN;
+  });
+
+  it('requires operator authorization and removes contact data while preserving anonymized audit history', async () => {
+    const token = process.env.ERASURE_OPERATOR_TOKEN!;
+    preferencesService.upsert(ADDRESS_A, { enabledChannels: ['email'] });
+    db.prepare(`INSERT INTO subscriptions (stellar_address, channel, destination, triggers, created_at)
+      VALUES (?, 'email', 'person@example.com', '[]', ?)`)
+      .run(ADDRESS_A, Date.now());
+    db.prepare(`INSERT INTO sent_notifications
+      (invoice_id, trigger, recipient_address, channel, destination, sent_at)
+      VALUES (1, 'invoice_paid', ?, 'email', 'person@example.com', ?)`)
+      .run(ADDRESS_A, Date.now());
+    db.prepare(`INSERT INTO delivery_audit_log
+      (invoice_id, trigger, recipient_address, channel, destination, status, attempts,
+       attempt_timestamps, created_at, updated_at)
+      VALUES (1, 'invoice_paid', ?, 'email', 'person@example.com', 'delivered', 1, '[]', ?, ?)`)
+      .run(ADDRESS_A, Date.now(), Date.now());
+
+    const denied = await request(makeApp()).post(`/preferences/erasure/${ADDRESS_A}`)
+      .send({ requestId: 'privacy-req-0001', operatorId: 'ops@example.test' });
+    expect(denied.status).toBe(401);
+
+    const response = await request(makeApp())
+      .post(`/preferences/erasure/${ADDRESS_A}`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ requestId: 'privacy-req-0001', operatorId: 'ops@example.test' });
+    expect(response.status).toBe(200);
+    expect(response.body.result).toMatchObject({ subscriptions: 1, sentNotifications: 1, anonymizedAuditRows: 1 });
+    expect(db.prepare('SELECT COUNT(*) AS count FROM subscriptions WHERE stellar_address = ?').get(ADDRESS_A)).toMatchObject({ count: 0 });
+    expect(db.prepare('SELECT COUNT(*) AS count FROM sent_notifications WHERE recipient_address = ?').get(ADDRESS_A)).toMatchObject({ count: 0 });
+    expect(db.prepare('SELECT recipient_address, destination FROM delivery_audit_log').get())
+      .toMatchObject({ recipient_address: '', destination: '' });
+    expect(db.prepare('SELECT COUNT(*) AS count FROM erasure_request_audit').get()).toMatchObject({ count: 1 });
+    expect(preferencesService.get(ADDRESS_A).enabledChannels).toEqual(['email', 'webhook']);
+  });
+
+  it('does not erase data owned by another address', async () => {
+    const token = process.env.ERASURE_OPERATOR_TOKEN!;
+    db.prepare(`INSERT INTO subscriptions (stellar_address, channel, destination, triggers, created_at)
+      VALUES (?, 'email', 'other@example.com', '[]', ?)`)
+      .run(ADDRESS_B, Date.now());
+    const response = await request(makeApp())
+      .post(`/preferences/erasure/${ADDRESS_A}`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ requestId: 'privacy-req-0002', operatorId: 'ops@example.test' });
+    expect(response.status).toBe(200);
+    expect(db.prepare('SELECT COUNT(*) AS count FROM subscriptions WHERE stellar_address = ?').get(ADDRESS_B))
+      .toMatchObject({ count: 1 });
+  });
+});
+
 describe('POST /preferences/:address/unsubscribe (#741)', () => {
   it('immediately clears all channels', async () => {
     preferencesService.upsert(ADDRESS_A, {

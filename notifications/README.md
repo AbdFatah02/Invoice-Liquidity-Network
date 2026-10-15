@@ -193,3 +193,16 @@ The service uses SQLite via `better-sqlite3` (default path: `notifications.sqlit
 - `subscriptions` — User notification subscriptions
 - `sent_notifications` — Delivered notification log (idempotency)
 - `webhook_delivery_logs` — Per-attempt webhook delivery tracking
+
+## Erasure requests
+
+Erasure is an operator-mediated workflow because the notification API cannot
+prove that a requester controls a Stellar address. Verify identity through a
+signed wallet challenge or equivalent approved account proof, then call
+`POST /preferences/erasure/:address` with JSON `{ "requestId": "...",
+"operatorId": "..." }` and `Authorization: Bearer <ERASURE_OPERATOR_TOKEN>`.
+Configure `ERASURE_OPERATOR_TOKEN` to a high-entropy value of at least 32
+characters. Do not expose the endpoint without network controls, and never use
+an address supplied by itself as identity proof. See
+[`docs/privacy.md`](../docs/privacy.md) for scope, retained/anonymized audit
+data, confirmation, and backup handling.

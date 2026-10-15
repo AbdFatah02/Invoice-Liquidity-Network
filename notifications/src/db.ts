@@ -250,6 +250,18 @@ function runMigrations(db: SQLiteDatabase): void {
     );
     CREATE INDEX IF NOT EXISTS idx_retention_deletion_audit_created
       ON retention_deletion_audit(created_at);
+
+    CREATE TABLE IF NOT EXISTS erasure_request_audit (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      request_id TEXT NOT NULL UNIQUE,
+      operator_id TEXT NOT NULL,
+      subscriptions INTEGER NOT NULL,
+      dispatch_attempts INTEGER NOT NULL,
+      sent_notifications INTEGER NOT NULL,
+      webhook_logs INTEGER NOT NULL,
+      anonymized_audit_rows INTEGER NOT NULL,
+      completed_at INTEGER NOT NULL
+    );
   `);
 }
 
@@ -396,6 +408,82 @@ export function deleteSubscriptionByAddressAndDestination(
     .prepare('SELECT id FROM subscriptions WHERE stellar_address = ? AND destination = ?')
     .all(address, destination) as { id: number }[];
   return deleteSubscriptions(ids.map(({ id }) => id));
+}
+
+export interface ErasureResult {
+  subscriptions: number;
+  dispatchAttempts: number;
+  sentNotifications: number;
+  webhookLogs: number;
+  anonymizedAuditRows: number;
+}
+
+/**
+ * Remove address-linked notification data. Delivery audit rows are retained
+ * for the configured investigation window but stripped of direct identifiers.
+ */
+export function eraseNotificationDataForAddress(
+  address: string,
+  requestId: string,
+  operatorId: string
+): ErasureResult {
+  const db = getDb();
+  return db.transaction(() => {
+    const destinations = db
+      .prepare('SELECT destination FROM subscriptions WHERE stellar_address = ?')
+      .all(address) as { destination: string }[];
+    const destinationValues = destinations.map(({ destination }) => destination);
+    const subs = db
+      .prepare('SELECT id FROM subscriptions WHERE stellar_address = ?')
+      .all(address) as { id: number }[];
+    const subIds = subs.map(({ id }) => id);
+
+    let webhookLogs = 0;
+    if (subIds.length) {
+      const marks = subIds.map(() => '?').join(', ');
+      webhookLogs = db
+        .prepare(`DELETE FROM webhook_delivery_logs WHERE subscription_id IN (${marks})`)
+        .run(...subIds).changes;
+      db.prepare(`DELETE FROM subscriptions WHERE id IN (${marks})`).run(...subIds);
+    }
+
+    let dispatchAttempts = db
+      .prepare('DELETE FROM dispatch_attempts WHERE recipient_address = ?')
+      .run(address).changes;
+    let sentNotifications = db
+      .prepare('DELETE FROM sent_notifications WHERE recipient_address = ?')
+      .run(address).changes;
+    if (destinationValues.length) {
+      const marks = destinationValues.map(() => '?').join(', ');
+      dispatchAttempts += db
+        .prepare(`DELETE FROM dispatch_attempts WHERE destination IN (${marks})`)
+        .run(...destinationValues).changes;
+      sentNotifications += db
+        .prepare(`DELETE FROM sent_notifications WHERE destination IN (${marks})`)
+        .run(...destinationValues).changes;
+    }
+
+    const anonymizedAuditRows = db
+      .prepare(`UPDATE delivery_audit_log
+        SET recipient_address = '', destination = '', last_error = NULL
+        WHERE recipient_address = ?`)
+      .run(address).changes;
+
+    const result = {
+      subscriptions: subIds.length,
+      dispatchAttempts,
+      sentNotifications,
+      webhookLogs,
+      anonymizedAuditRows,
+    };
+    db.prepare(`INSERT INTO erasure_request_audit
+      (request_id, operator_id, subscriptions, dispatch_attempts, sent_notifications,
+       webhook_logs, anonymized_audit_rows, completed_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
+      .run(requestId, operatorId, result.subscriptions, result.dispatchAttempts,
+        result.sentNotifications, result.webhookLogs, result.anonymizedAuditRows, Date.now());
+    return result;
+  })();
 }
 
 function deleteSubscriptions(ids: number[]): boolean {

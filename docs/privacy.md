@@ -3,10 +3,55 @@
 This document describes the data the Invoice Liquidity Network stores on behalf of users, how long each piece of data is retained, and how users can exercise their right to view, export, or delete their data across all services (Notifications, Indexer, KYB Provider Interface, and Oracle).
 
 For protocol-level security and threat-model information, see [`security-guide.md`](security-guide.md) and [`threat-model.md`](threat-model.md).
+For the processor and agreement evidence register, see [Third-Party Data-Processor Inventory](third-party-data-processor-inventory.md).
 
 ---
 
 ## 1. Notifications Service (`notifications/`)
+
+### Right-to-erasure request process
+
+Users may request deletion through the support/privacy contact published by
+the operator. The operator records the request ID and received date, verifies
+control of the relevant Stellar address using a signed challenge from the
+wallet or equivalent documented account proof, and scopes the request against
+the notifications service. A public address supplied in a URL or email alone
+is not identity verification. Do not request or retain a secret key.
+
+After verification, an authorized operator runs the notifications erasure
+operation for that address. It disables in-memory preferences, removes all
+subscriptions and their webhook retry rows, removes pending dispatch work,
+and removes deduplication rows containing the address or its destinations.
+Delivery audit rows required for the published 90-day investigation window
+are retained but anonymized: address, destination, and free-text error fields
+are cleared. The remaining event/time/channel/outcome fields are retained only
+for that period and then removed by the existing retention sweep. The
+operation is transactional and produces an audit record with request ID,
+counts, operator, and timestamp but no address or destination. The operator
+confirms completion to the verified requester and records any legally required
+retention exception and expiry date.
+
+This repository has no persistent user-account database beyond notification
+preferences and subscriptions. Wallet accounts and ledger data are public
+network records and are not deletable by this service. A deployment with
+additional account stores must add their owners and deletion adapters to the
+request checklist before describing a request as globally complete. Backups
+expire on their separately configured lifecycle; restored backups must be
+reconciled with completed erasure records before being returned to service.
+
+The HTTP notification API does not itself prove requester identity. Intake and
+wallet/account identity verification are operator-mediated; never expose an
+unauthenticated endpoint that deletes records by address. After verification,
+an authorized operator calls `POST /preferences/erasure/:address` with
+`{ "requestId": "...", "operatorId": "..." }` and an `Authorization:
+Bearer ...` header. Configure `ERASURE_OPERATOR_TOKEN` as a high-entropy secret
+of at least 32 characters in the service environment. The request ID is
+idempotent; a repeated completed ID returns HTTP 409. The endpoint is not a
+public user self-service route. Keep the verification evidence in the
+controlled request system, not in the notifications database.
+Keep a minimal request receipt outside the erased data store only where
+required to demonstrate completion, with its own access controls and
+retention schedule.
 
 The notifications service has in-memory preferences and SQLite-backed delivery data:
 

@@ -19,7 +19,12 @@ import { Router, type Request, type Response } from 'express';
 import { preferencesService } from './preferences';
 import type { NotificationFrequency, QuietHours, TriggerPreference } from './preferences';
 import type { SubscriptionChannel, NotificationTrigger } from './types';
-import { getSubscriptionsByAddress, getWebhookDeliveryLogs, getDb } from './db';
+import {
+  eraseNotificationDataForAddress,
+  getSubscriptionsByAddress,
+  getWebhookDeliveryLogs,
+  getDb,
+} from './db';
 
 // Stellar public-key shape: `G` + 55 base32 chars (RFC 4648 alphabet
 // A-Z, 2-7). Used to validate address-shaped URL params before any DB
@@ -258,6 +263,48 @@ function reject(res: Response, msg: string): Response {
 
 export function createPreferencesRouter(): Router {
   const router = Router();
+
+  // Operator-mediated erasure endpoint. Identity verification happens before
+  // this call through the documented support workflow; this route requires a
+  // separate deployment secret and never accepts an address as proof.
+  router.post('/erasure/:address', (req: Request, res: Response) => {
+    const configuredToken = process.env.ERASURE_OPERATOR_TOKEN;
+    const authorization = req.header('authorization') ?? '';
+    const suppliedToken = authorization.startsWith('Bearer ')
+      ? authorization.slice('Bearer '.length)
+      : '';
+    if (!configuredToken || configuredToken.length < 32) {
+      return res.status(503).json({ error: 'Erasure operator workflow is not configured.' });
+    }
+    const expected = Buffer.from(configuredToken);
+    const supplied = Buffer.from(suppliedToken);
+    if (expected.length !== supplied.length || !crypto.timingSafeEqual(expected, supplied)) {
+      return res.status(401).json({ error: 'Operator authorization required.' });
+    }
+
+    const address = req.params.address;
+    const requestId = req.body?.requestId;
+    const operatorId = req.body?.operatorId;
+    if (!STELLAR_ADDRESS_RE.test(address)) {
+      return res.status(400).json({ error: 'address must be a valid Stellar G-address.' });
+    }
+    if (typeof requestId !== 'string' || !/^[A-Za-z0-9._:-]{8,120}$/.test(requestId)) {
+      return res.status(400).json({ error: 'requestId must be a valid request reference.' });
+    }
+    if (typeof operatorId !== 'string' || !/^[A-Za-z0-9._@-]{1,100}$/.test(operatorId)) {
+      return res.status(400).json({ error: 'operatorId must identify the authorized operator.' });
+    }
+    try {
+      const result = eraseNotificationDataForAddress(address, requestId, operatorId);
+      preferencesService.delete(address);
+      return res.json({ success: true, requestId, completedAt: new Date().toISOString(), result });
+    } catch (error) {
+      if (error instanceof Error && error.message.includes('UNIQUE constraint failed')) {
+        return res.status(409).json({ error: 'This erasure request has already been completed.' });
+      }
+      return res.status(500).json({ error: 'Erasure could not be completed; request remains open.' });
+    }
+  });
 
   // GET /preferences/:address
   router.get('/:address', (req: Request, res: Response) => {
