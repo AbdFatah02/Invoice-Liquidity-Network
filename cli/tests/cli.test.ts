@@ -879,6 +879,32 @@ describe('man command', () => {
     expect(stdout.toString()).toContain('1,');
   });
 
+  it('quotes CSV fields and neutralizes spreadsheet formulas in exported data', async () => {
+    const stdout = createMemoryStream();
+    const client = {
+      listInvoicesByAddress: vi.fn().mockResolvedValue([
+        createListedInvoice({
+          id: 1n,
+          role: 'freelancer',
+          status: 'Pending',
+          freelancer: '=HYPERLINK("https://attacker.invalid")',
+          payer: 'Payer, Inc.\nSecond line',
+        }),
+      ]),
+    };
+
+    const exitCode = await runCli(['export', '--address', validAddress(), '--output', '-'], {
+      createClient: () => client as any,
+      loadConfig: () => TEST_CONFIG,
+      stderr: createMemoryStream(),
+      stdout,
+    });
+
+    expect(exitCode).toBe(0);
+    expect(stdout.toString()).toContain("'=HYPERLINK(\"https://attacker.invalid\")");
+    expect(stdout.toString()).toContain('"Payer, Inc.\nSecond line"');
+  });
+
   it('exports all invoices when no address filter is given', async () => {
     const stdout = createMemoryStream();
     const client = {

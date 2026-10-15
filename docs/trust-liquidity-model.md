@@ -27,6 +27,39 @@ The service does not silently fall back to heuristic-only approval, and there is
 - **Reviewer Question**: Which fiat-on/off ramp will handle the final mile settlement, and what are their SLA guarantees?
 - **Final Decision**: We have selected regulated stablecoin issuers (like Circle for USDC) combined with Stellar Anchor Network members for local currency disbursement. This dual-anchor strategy guarantees near-instant USD-equivalent settlement while providing localized rails for SMEs who prefer native fiat.
 
+#### 4.1 Sanctions screening integration point (pre-mainnet gate)
+
+Screening is an off-chain compliance gate owned jointly by ILN's compliance
+operator and the selected settlement-anchor partner. Before an account can
+request an anchor deposit or payout, the onboarding service submits the
+minimum partner-required identity data plus the Stellar public address,
+transaction direction, asset, amount, and jurisdiction to the partner's
+sanctions-screening interface. ILN does not select a screening vendor or claim
+that screening is currently integrated; the partner contract and API schema
+must define the exact identity fields, lawful basis, retention, and permitted
+use before production credentials are enabled.
+
+The screening adapter returns a case reference and one of `clear`, `potential_match`,
+or `unavailable`. Only `clear` may proceed. A potential match places the
+settlement request on compliance hold: no fiat instruction is sent and no
+on-chain settlement action is initiated by the integration. An unavailable,
+timed-out, malformed, or indeterminate response also fails closed and remains
+on hold; bounded retries use an idempotency key derived from the ILN request
+ID. Repeated failures page the operator and leave the request pending rather
+than treating the outage as approval.
+
+The operator reviews potential matches through the partner's documented
+case-resolution channel. A false-positive release requires a recorded,
+authorized partner decision and case reference; ILN operators cannot override
+the screening result. The user receives a generic pending-review status that
+does not disclose list data. Appeals follow the partner's published process.
+Record the decision, timestamp, reviewer/partner case reference, and outcome,
+but do not copy raw watchlist results into ILN logs. KYB and sanctions checks
+share the same compliance-hold state and fail-closed user experience, while
+remaining separate decisions. Mainnet launch is blocked until the partner
+interface, ownership, escalation SLA, retention terms, and end-to-end tests
+are approved and documented.
+
 ---
 
 ## 5. Settlement-Anchor Partner Failure & Insolvency Analysis

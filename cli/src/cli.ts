@@ -820,15 +820,15 @@ export async function runCli(
       const header = 'id,freelancer,payer,amount,discountRate,dueDate,status,funder,fundedAt';
       const rows = invoices.map((inv) =>
         [
-          inv.id.toString(),
-          inv.freelancer,
-          inv.payer,
-          inv.amount.toString(),
-          inv.discountRate,
-          inv.dueDate,
-          inv.status,
-          inv.funder ?? '',
-          inv.fundedAt ?? '',
+          csvCell(inv.id.toString()),
+          csvCell(inv.freelancer),
+          csvCell(inv.payer),
+          csvCell(inv.amount.toString()),
+          csvCell(inv.discountRate),
+          csvCell(inv.dueDate),
+          csvCell(inv.status),
+          csvCell(inv.funder ?? ''),
+          csvCell(inv.fundedAt ?? ''),
         ].join(',')
       );
       const csv = [header, ...rows].join('\n');
@@ -1743,6 +1743,15 @@ async function fetchInvoicesForExport(
     }
   }
   return invoices;
+}
+
+/** Quote one RFC 4180 CSV field and neutralize spreadsheet formula prefixes. */
+function csvCell(value: string | number | bigint): string {
+  let cell = String(value);
+  if (/^[\u0000-\u0020]*[=+@-]/.test(cell)) {
+    cell = `'${cell}`;
+  }
+  return /[",\r\n]/.test(cell) ? `"${cell.replace(/"/g, '""')}"` : cell;
 }
 
 function parseInvoiceId(value: string): bigint {
