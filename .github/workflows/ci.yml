@@ -492,6 +492,9 @@ jobs:
       - name: Check for stray package-lock.json / yarn.lock files
         run: node scripts/check-no-foreign-lockfiles.mjs
 
+      - name: Check for duplicate shared type definitions
+        run: node scripts/check-no-duplicate-types.mjs
+
       - name: Comment PR on failure
         if: failure() && github.event_name == 'pull_request' && !github.event.pull_request.head.repo.fork
         continue-on-error: true
@@ -502,7 +505,7 @@ jobs:
               issue_number: context.issue.number,
               owner: context.repo.owner,
               repo: context.repo.repo,
-              body: '🚨 **Foreign lockfile detected!** This is a pnpm-only workspace. Remove any `package-lock.json`/`yarn.lock` and run `pnpm install` instead.'
+              body: '🚨 **Repository guardrail failed.** Check the job log for a foreign lockfile or a duplicate shared type definition. Use pnpm at the repository root and import shared types from `@iln/shared` where applicable.'
             })
 
   node-tests:

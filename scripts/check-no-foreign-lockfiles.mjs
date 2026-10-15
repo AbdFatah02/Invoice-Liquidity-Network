@@ -8,22 +8,34 @@
  * Usage: node scripts/check-no-foreign-lockfiles.mjs
  */
 
-import { readdirSync, statSync } from 'fs';
+import { readdirSync, lstatSync } from 'fs';
 import { resolve, dirname, join } from 'path';
 import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
-const rootDir = resolve(__dirname, '..');
+const rootDir = resolve(process.env.ILN_REPO_ROOT || resolve(__dirname, '..'));
 
-const FORBIDDEN_NAMES = new Set(['package-lock.json', 'yarn.lock']);
+// These lockfiles indicate that an installer other than pnpm has been run.
+// Keep the pnpm lockfile at the workspace root as the sole allowed lockfile.
+const FORBIDDEN_NAMES = new Set([
+  'package-lock.json',
+  'npm-shrinkwrap.json',
+  'yarn.lock',
+  'bun.lock',
+  'bun.lockb',
+]);
 const IGNORED_DIR_NAMES = new Set(['node_modules', '.git', 'target', 'dist', 'build', '.next']);
 
 function walk(dir, found) {
   for (const entry of readdirSync(dir)) {
     const fullPath = join(dir, entry);
-    const stats = statSync(fullPath);
-    if (stats.isDirectory()) {
+    const stats = lstatSync(fullPath);
+    if (stats.isSymbolicLink()) {
+      // Never follow links outside the checkout, but reject a linked lockfile
+      // itself so a symlink cannot disguise a forbidden package-manager file.
+      if (FORBIDDEN_NAMES.has(entry)) found.push(fullPath);
+    } else if (stats.isDirectory()) {
       if (IGNORED_DIR_NAMES.has(entry)) continue;
       walk(fullPath, found);
     } else if (FORBIDDEN_NAMES.has(entry)) {

@@ -44,6 +44,15 @@ jobs:
 
       - name: Deploy contracts and seed accounts
         run: docker compose up --remove-orphans contract-deployer account-seeder
+        env:
+          FREELANCER_COUNT: '3'
+          PAYER_COUNT: '2'
+          FUNDER_COUNT: '2'
+          INVOICES_PER_FREELANCER: '4'
+          FUNDED_INVOICE_COUNT: '2'
+          FIRST_INVOICE_ID: '1'
+          INVOICE_AMOUNT_BASE: '1000000'
+          INVOICE_AMOUNT_STEP: '250000'
 
       - name: Install Frontend Dependencies
         working-directory: frontend

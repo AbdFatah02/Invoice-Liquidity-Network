@@ -96,13 +96,15 @@ function collectDocumentedEntries(repoRoot) {
 
     if (cells.length === 0) continue;
 
-    const value = cells[0].replace(/^`|`$/g, '').trim();
+    const pathCell = cells[0];
+    // Workspace paths are consistently rendered as inline code in map tables.
+    // Use that formatting instead of a hard-coded allowlist of root packages,
+    // so a newly-added top-level workspace cannot evade drift detection.
+    if (!pathCell.startsWith('`') || !pathCell.endsWith('`')) continue;
+    const value = pathCell.replace(/^`|`$/g, '').trim();
     const cleaned = value.replace(/\/$/, '');
     if (!cleaned || cleaned === 'Path') continue;
-
-    if (cleaned.includes('/') || cleaned === 'sdk' || cleaned === 'cli' || cleaned === 'indexer' || cleaned === 'notifications' || cleaned === 'docs') {
-      entries.add(cleaned);
-    }
+    entries.add(cleaned);
   }
 
   return [...entries].sort();

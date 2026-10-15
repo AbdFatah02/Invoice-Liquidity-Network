@@ -67,7 +67,7 @@
     "test:release-scripts": "node --test scripts/__tests__/verify-release-dry-run.test.mjs scripts/__tests__/release-audit-log.test.mjs",
     "canary:rollout": "node scripts/canary/rollout.mjs",
     "canary:drill": "node scripts/canary/rollout-drill.mjs",
-    "test:canary": "node --test scripts/__tests__/canary-rollout-decision.test.mjs scripts/__tests__/canary-prometheus-adapter.test.mjs scripts/__tests__/canary-rollout.test.mjs scripts/__tests__/canary-register-target.test.mjs"
+    "test:canary": "node --test scripts/__tests__/canary-rollout-decision.test.mjs scripts/__tests__/canary-prometheus-adapter.test.mjs scripts/__tests__/canary-rollout.test.mjs scripts/__tests__/canary-register-target.test.mjs",
     "alert-runbook:check": "node scripts/check-alert-runbook-links.mjs",
     "test:alert-runbook": "node --test scripts/__tests__/check-alert-runbook-links.test.mjs",
     "test:runtime-budgets": "node scripts/check-test-runtime-budgets.mjs",

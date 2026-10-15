@@ -2,6 +2,7 @@
 import { readFileSync, existsSync } from 'fs';
 import { resolve, dirname, join, sep } from 'path';
 import { readdir } from 'fs/promises';
+import { pathToFileURL } from 'url';
 
 function extractLinks(text) {
   const re = /\[([^\]]+)\]\(([^)]+)\)/g;
@@ -23,10 +24,33 @@ function resolveSiteRoute(route, contentRoot) {
   return candidates.find(existsSync) ?? null;
 }
 
+async function checkExternalLink(url, fetchImpl = fetch) {
+  try {
+    const response = await fetchImpl(url, {
+      method: 'HEAD',
+      redirect: 'follow',
+      signal: AbortSignal.timeout(5000),
+    });
+    return response.ok
+      ? { problem: null, warning: null }
+      : { problem: `external ${url} -> ${response.status}`, warning: null };
+  } catch (error) {
+    // Network failures mean the link could not be verified; they do not prove
+    // the destination is broken. Keep HTTP error responses as hard failures.
+    return { problem: null, warning: `external ${url} could not be verified: ${String(error)}` };
+  }
+}
+
 async function checkFile(filePath, repoRoot) {
   const content = readFileSync(filePath, 'utf8');
-  const links = extractLinks(content);
+  // Fenced and inline code examples show markdown as text and should not be
+  // checked as links from the file containing the example.
+  const markdown = content
+    .replace(/^```[^\n]*\n[\s\S]*?^```[^\n]*(?:\n|$)/gm, '')
+    .replace(/`[^`\n]*`/g, '');
+  const links = extractLinks(markdown);
   const problems = [];
+  const warnings = [];
 
   await Promise.all(
     links.map(async (link) => {
@@ -35,12 +59,9 @@ async function checkFile(filePath, repoRoot) {
       // strip title part: url "title"
       const url = link.split(/\s+/)[0];
       if (/^https?:\/\//i.test(url)) {
-        try {
-          const res = await fetch(url, { method: 'HEAD', redirect: 'follow', timeout: 5000 });
-          if (!res.ok) problems.push(`external ${url} -> ${res.status}`);
-        } catch (err) {
-          problems.push(`external ${url} -> ${String(err)}`);
-        }
+        const result = await checkExternalLink(url);
+        if (result.problem) problems.push(result.problem);
+        if (result.warning) warnings.push(result.warning);
       } else {
         const localPath = url.split('#')[0];
         const contentRoot = resolve(repoRoot, 'packages/docs/content');
@@ -53,7 +74,7 @@ async function checkFile(filePath, repoRoot) {
     })
   );
 
-  return { file: filePath, problems };
+  return { file: filePath, problems, warnings };
 }
 
 async function main() {
@@ -111,7 +132,7 @@ async function main() {
       const r = await checkFile(resolve(repoRoot, f), repoRoot);
       results.push(r);
     } catch (err) {
-      results.push({ file: f, problems: [`error ${String(err)}`] });
+      results.push({ file: f, problems: [`error ${String(err)}`], warnings: [] });
     }
   }
 
@@ -122,10 +143,13 @@ async function main() {
       console.error(`\nProblems in ${r.file}:`);
       for (const p of r.problems) console.error(` - ${p}`);
     }
+    for (const warning of r.warnings ?? []) console.warn(`⚠️ ${r.file}: ${warning}`);
   }
 
   console.log(`\nChecked ${fileList.length} files, ${failed} files with problems.`);
   process.exit(failed ? 1 : 0);
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) main();
+if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) main();
+
+export { checkExternalLink };
