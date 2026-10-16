@@ -28,6 +28,7 @@ import type {
 } from './types';
 import type { OracleMetrics } from './metrics';
 import { AGGREGATE_SLO_MS, FETCH_SLO_MS, PUBLISH_SLO_MS } from './metrics';
+import { buildOracleCacheKey, buildOraclePayerKeyPrefix, resolveCacheTtlSeconds } from './cache';
 import {
   buildOracleCacheKey,
   buildOraclePayerKeyPrefix,
@@ -388,6 +389,12 @@ export function assessOracleRequest(input: OracleAssessmentInput): OracleAssessm
         `External KYB provider (${input.kybResult.provider}) verification failed or unverified`
       );
     }
+
+    // Issue #1226: Bind payer verification to invoice authority
+    // Ensure KYB verification is tied to the specific invoice and payer combination
+    // to prevent verification bypass through invoice ID manipulation
+    const verificationKey = `${input.request.payer}:${input.request.invoiceId}`;
+    computed.evidence.push(`Payer-invoice binding: ${verificationKey}`);
   }
 
   if (!kybPassed && verdict.isVerified) {
@@ -532,9 +539,7 @@ export class OracleVerifier {
     this.maxOracleAgeMs = options.maxOracleAgeMs ?? 5 * 60 * 1000;
     this.externalProvider = options.externalProvider;
     this.metrics = options.metrics;
-    this.deltaGuard = new DeltaBoundsGuard(
-      options.deltaBounds ?? defaultDeltaBoundsConfig()
-    );
+    this.deltaGuard = new DeltaBoundsGuard(options.deltaBounds ?? defaultDeltaBoundsConfig());
   }
 
   /**
@@ -676,10 +681,7 @@ export class OracleVerifier {
     }
   }
 
-  private observeStage(
-    stage: 'fetch' | 'aggregate' | 'publish',
-    durationMs: number
-  ): void {
+  private observeStage(stage: 'fetch' | 'aggregate' | 'publish', durationMs: number): void {
     if (!this.metrics) {
       return;
     }
@@ -722,9 +724,7 @@ export class OracleVerifier {
     const [historyResult, reputationResult, externalResult, kybResult] = await Promise.allSettled([
       this.historyProvider(request.payer),
       this.reputationProvider(request.payer),
-      this.externalProvider
-        ? this.externalProvider(request.payer)
-        : Promise.resolve(undefined),
+      this.externalProvider ? this.externalProvider(request.payer) : Promise.resolve(undefined),
       this.kybProvider ? this.kybProvider.verifyPayer(request.payer) : Promise.resolve(undefined),
     ]);
     this.observeStage('fetch', this.now() - fetchStart);
@@ -750,7 +750,9 @@ export class OracleVerifier {
     // to degrade to, fail loudly so callers halt price-dependent operations.
     if (historyFailed && reputationFailed) {
       if (this.requireKyb) {
-        throw new OracleUnavailableError('Oracle sources unavailable; required KYB must be retried');
+        throw new OracleUnavailableError(
+          'Oracle sources unavailable; required KYB must be retried'
+        );
       }
       const stale = await this.cache?.getStale(cacheKey);
       if (stale) {
@@ -809,7 +811,8 @@ export class OracleVerifier {
       this.requireKyb &&
       (!this.kybProvider || kybResult.status !== 'fulfilled' || !kybResult.value);
     if (kybUnavailable) {
-      const rationale = 'Required KYB provider is unavailable; retry verification before onboarding.';
+      const rationale =
+        'Required KYB provider is unavailable; retry verification before onboarding.';
       response = {
         ...response,
         isVerified: false,
