@@ -17,7 +17,8 @@ const ALLOWLIST = [
 const BLOCKLIST = ['GPL', 'LGPL', 'AGPL', 'SSPL', 'Commons Clause'];
 const OWN_PACKAGES = [
   'invoice-liquidity-network',
-  '@invoice-liquidity/sdk',
+  '@iln/sdk',
+  '@iln/sdk-next',
   '@invoice-liquidity/cli',
   'iln-indexer',
   'iln-notifications',

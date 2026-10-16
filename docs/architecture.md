@@ -267,7 +267,7 @@ The script runs `stellar contract build`, uploads the resulting WASM, then write
 
 ## The SDK's Role
 
-The SDK (`@invoice-liquidity/sdk`) is the primary integration point for any application that needs to interact with ILN. It abstracts three layers of complexity:
+The SDK (`@iln/sdk`) is the primary integration point for any application that needs to interact with ILN. It abstracts three layers of complexity:
 
 1. **Transaction construction.** Soroban transactions require building XDR, simulating for footprint, and handling the prepare/sign/submit/poll cycle. The SDK encapsulates all of this behind simple async methods.
 

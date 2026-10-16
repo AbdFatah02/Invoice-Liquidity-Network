@@ -9,7 +9,7 @@
     "versionMethod": "get_version"
   },
   "sdk": {
-    "package": "@invoice-liquidity/sdk",
+    "package": "@iln/sdk",
     "version": "0.1.0"
   },
   "compatibilityMatrix": "docs/cross-repo-dependencies.md",

@@ -120,8 +120,8 @@ export class ILNInstrumentation {
 
     this.allowedAttributesSet = new Set(this.options.allowedAttributes);
 
-    this.tracer = trace.getTracer('@invoice-liquidity/sdk');
-    this.meter = metrics.getMeter('@invoice-liquidity/sdk');
+    this.tracer = trace.getTracer('@iln/sdk');
+    this.meter = metrics.getMeter('@iln/sdk');
 
     this.transactionDuration = this.meter.createHistogram('iln.transaction.duration', {
       description: 'Duration of ILN transactions',

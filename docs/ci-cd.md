@@ -567,7 +567,7 @@ flowchart TD
 - Debugging tips:
   - Verify the Docker Compose file still matches the ports the tests expect.
   - If Horizon never becomes reachable, inspect the container logs and the readiness loop.
-  - Run `pnpm --filter @invoice-liquidity/sdk test:e2e-local` after starting the Docker stack locally.
+  - Run `pnpm --filter @iln/sdk test:e2e-local` after starting the Docker stack locally.
 
 ### `snyk.yml`
 
@@ -664,7 +664,7 @@ The `e2e.yml` workflow currently invokes `npm run test:e2e` after bringing up th
 For the SDK local-node suite used by `sdk-e2e-local-node.yml`, run:
 
 ```bash
-pnpm --filter @invoice-liquidity/sdk test:e2e-local
+pnpm --filter @iln/sdk test:e2e-local
 docker compose -f tests/e2e/docker-compose.yml down
 ```
 

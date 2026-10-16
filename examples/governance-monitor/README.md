@@ -240,7 +240,7 @@ To verify the monitor works before real proposals:
 1. Create a test proposal on testnet using the SDK:
 
 ```ts
-import { GovernanceClient, GOVERNANCE_TESTNET, createKeypairSigner } from "@invoice-liquidity/sdk";
+import { GovernanceClient, GOVERNANCE_TESTNET, createKeypairSigner } from "@iln/sdk";
 
 const client = new GovernanceClient(GOVERNANCE_TESTNET);
 // ... create proposal

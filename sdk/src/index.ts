@@ -2,7 +2,7 @@ export * from './amounts';
 // Explicit re-export to resolve the ValidationResult naming collision
 // between ./amounts and ./validators — the amounts.ts shape wins at
 // the package root; validators.ts's own shape is still importable
-// directly from "@invoice-liquidity/sdk/validators" if needed.
+// from the validators module (not a public subpath export).
 export type { ValidationResult } from './amounts';
 export * from './client';
 export * from './state';

@@ -19,7 +19,7 @@ The smart contract repo produces a compiled WASM and a contract spec (`spec.json
 Each row represents a tested, compatible combination of component versions. **The CI pipeline validates that the currently checked-out versions match at least one row in this table.**
 
 <!-- COMPATIBILITY_MATRIX_START -->
-| Contract (`invoice_liquidity`) | SDK (`@invoice-liquidity/sdk`) | Frontend (`ILN-Frontend`) | Notes |
+| Contract (`invoice_liquidity`) | SDK (`@iln/sdk`) | Frontend (`ILN-Frontend`) | Notes |
 |---|---|---|---|
 | `0.1.0` | `0.1.0` | `0.1.0` | Initial release — all components aligned |
 <!-- COMPATIBILITY_MATRIX_END -->
@@ -42,10 +42,10 @@ ILN-Smart-Contract (Rust / Soroban)
         │  stellar contract build → .wasm
         │  stellar contract info  → spec.json
         ▼
-@invoice-liquidity/sdk (TypeScript)
+@iln/sdk (TypeScript)
         │
         │  pnpm generate:types → sdk/src/generated/types.ts
-        │  npm publish → @invoice-liquidity/sdk@x.y.z
+        │  npm publish → @iln/sdk@x.y.z
         ▼
 ILN-Frontend (Next.js)
         │

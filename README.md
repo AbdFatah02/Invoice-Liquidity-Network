@@ -71,7 +71,7 @@ This is the **organisation root** — it contains shared infrastructure used acr
 A typed JavaScript/TypeScript SDK with browser Freighter signing and Node.js keypair support.
 
 ```bash
-npm install @invoice-liquidity/sdk
+npm install @iln/sdk
 ```
 
 See [`sdk/README.md`](./sdk/README.md) for full API documentation.
@@ -159,11 +159,11 @@ If you are a new integrator, use this quick decision guide to find what you need
 | If you are building...     | You should use...   | NPM Package              |
 | -------------------------- | ------------------- | ------------------------ |
 | A command-line integration | `cli/`              | `@invoice-liquidity/cli` |
-| A TypeScript/Node.js app   | `sdk/`              | `@invoice-liquidity/sdk` |
+| A TypeScript/Node.js app   | `sdk/`              | `@iln/sdk` |
 | A React frontend           | `packages/react/`   | `@iln/react`             |
 | Direct Horizon queries     | `packages/indexer/` | `@iln/indexer`           |
 
-> Note: The legacy CLI (`@iln/cli`) and experimental SDK (`@iln/sdk`) have been consolidated. Always use the top-level `cli/` and `sdk/` directories for new integrations.
+> Note: The legacy CLI (`@iln/cli`) has been consolidated into `@invoice-liquidity/cli`. The production SDK is `@iln/sdk` (`sdk/`); `@iln/sdk-next` (`packages/sdk/`) is the experimental rewrite. Always use the top-level `cli/` and `sdk/` directories for new integrations.
 
 The table below lists every workspace package, its directory, npm package name, and role. `pnpm-workspace.yaml` is the single source of truth — the `workspaces` field has been removed from `package.json` because pnpm ignores it.
 
@@ -171,7 +171,7 @@ The table below lists every workspace package, its directory, npm package name, 
 
 | Directory        | Package name                       | Role                                                                                        |
 | ---------------- | ---------------------------------- | ------------------------------------------------------------------------------------------- |
-| `sdk/`           | `@invoice-liquidity/sdk`           | TypeScript SDK — browser Freighter + Node.js keypair signing                                |
+| `sdk/`           | `@iln/sdk`           | TypeScript SDK — browser Freighter + Node.js keypair signing                                |
 | `cli/`           | `@invoice-liquidity/cli`           | Published CLI (`iln` binary) for interacting with the contract                              |
 | `indexer/`       | `iln-indexer`                      | Production event indexer service — Soroban RPC → SQLite → REST/GraphQL, deployed on Railway |
 | `notifications/` | `@invoice-liquidity/notifications` | Webhook notification service for invoice lifecycle events                                   |
@@ -181,7 +181,7 @@ The table below lists every workspace package, its directory, npm package name, 
 
 | Directory                 | Package name                   | Role                                                                                                              |
 | ------------------------- | ------------------------------ | ----------------------------------------------------------------------------------------------------------------- |
-| `packages/sdk/`           | `@iln/sdk`                     | SDK package variant (experimental / next iteration)                                                               |
+| `packages/sdk/`           | `@iln/sdk-next`                | SDK package variant (experimental / next iteration)                                                               |
 | `packages/docs/`          | `@invoice-liquidity/docs-next` | **Canonical deployed docs site** (Nextra 3, Next.js 15 App Router) — [docs.iln.finance](https://docs.iln.finance) |
 | `packages/shared/`        | `@iln/shared`                  | Shared utilities consumed by SDK, CLI, and other packages                                                         |
 | `packages/indexer/`       | `@iln/indexer`                 | Horizon-based event indexer utility library (stateless, publishable)                                              |
@@ -221,7 +221,7 @@ The table below lists every workspace package, its directory, npm package name, 
 ├── packages/docs/          # Canonical docs site (@invoice-liquidity/docs-next, deployed to docs.iln.finance)
 ├── packages/indexer/       # Horizon event indexer utility (@iln/indexer, publishable library)
 ├── scripts/                # Deployment & dev scripts
-├── sdk/                    # TypeScript SDK (@invoice-liquidity/sdk)
+├── sdk/                    # TypeScript SDK (@iln/sdk)
 ├── tests/                  # E2E integration tests
 ├── .github/workflows/      # CI/CD pipelines
 ├── docker-compose.yml      # Local dev environment

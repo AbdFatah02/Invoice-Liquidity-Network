@@ -35,7 +35,7 @@ import type { RpcServerLike } from './types';
  *
  * @example
  * ```ts
- * import { GovernanceClient, GOVERNANCE_TESTNET } from "@invoice-liquidity/sdk";
+ * import { GovernanceClient, GOVERNANCE_TESTNET } from "@iln/sdk";
  *
  * const gov = new GovernanceClient(GOVERNANCE_TESTNET);
  * const tx = await gov.createProposal({

@@ -9,7 +9,7 @@ docker compose -f tests/e2e/docker-compose.yml up -d
 - **Run tests for the SDK package only:**
 
 ```bash
-pnpm --filter @invoice-liquidity/sdk test:e2e-local
+pnpm --filter @iln/sdk test:e2e-local
 ```
 
 - **Stop local Stellar node:**

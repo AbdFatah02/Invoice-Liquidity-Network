@@ -5,7 +5,7 @@ The ILN SDK works seamlessly with React applications. This guide covers best pra
 ## Installation
 
 ```bash
-npm install @invoice-liquidity/sdk react react-dom
+npm install @iln/sdk react react-dom
 npm install -D @types/react @types/react-dom
 ```
 
@@ -16,7 +16,7 @@ Create a provider to share the ILN client across your app:
 ```tsx
 // contexts/ILNContext.tsx
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { ILNClient } from '@invoice-liquidity/sdk';
+import { ILNClient } from '@iln/sdk';
 import { Networks } from '@stellar/stellar-sdk';
 
 interface ILNContextType {

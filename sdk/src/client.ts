@@ -114,7 +114,7 @@ type SimulationLike = {
  *
  * @example
  * ```ts
- * import { ILNSdk, ILN_TESTNET, createKeypairSigner } from "@invoice-liquidity/sdk";
+ * import { ILNSdk, ILN_TESTNET, createKeypairSigner } from "@iln/sdk";
  *
  * const sdk = new ILNSdk({
  *   ...ILN_TESTNET,

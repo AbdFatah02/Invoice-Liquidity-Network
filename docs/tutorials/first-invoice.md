@@ -172,13 +172,13 @@ The explorer shows the actual Stellar transaction and confirms the contract call
 Install the SDK and call `getInvoice()` to read the newly created invoice from the contract.
 
 ```bash
-npm install @invoice-liquidity/sdk
+npm install @iln/sdk
 ```
 
 Create a simple Node.js script named `check-invoice.js`:
 
 ```js
-import { ILNSdk, ILN_TESTNET, createFreighterSigner } from "@invoice-liquidity/sdk";
+import { ILNSdk, ILN_TESTNET, createFreighterSigner } from "@iln/sdk";
 
 const sdk = new ILNSdk({
   ...ILN_TESTNET,

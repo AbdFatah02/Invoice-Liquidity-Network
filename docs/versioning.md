@@ -24,7 +24,7 @@ every page exists to make that visible rather than surprising.
 | Network | Stellar testnet |
 | Contract (`invoice_liquidity`) | `0.1.0` |
 | Contract ID | `CCPASLHKRFBMVV5PZG3LKDGKFEDXZMB5U7DK42CVLUVWCMUCSRPVBIMO` |
-| SDK (`@invoice-liquidity/sdk`) | `0.1.0` |
+| SDK (`@iln/sdk`) | `0.1.0` |
 
 These values are declared once, in [`docs/version-manifest.json`](version-manifest.json),
 and mirrored into `packages/docs/lib/docs-version.ts` (the deployed Nextra 3 site) and

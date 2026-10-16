@@ -262,7 +262,7 @@ Errors:
 Import from the published SDK package:
 
 ```ts
-import { AnalyticsSDK } from "@invoice-liquidity/sdk";
+import { AnalyticsSDK } from "@iln/sdk";
 ```
 
 Constructor:
@@ -344,7 +344,7 @@ Use `new AnalyticsSDK(baseUrl, 0)` or call `clearCache()` when a dashboard needs
 ## Example: Simple Analytics Widget
 
 ```ts
-import { AnalyticsSDK } from "@invoice-liquidity/sdk";
+import { AnalyticsSDK } from "@iln/sdk";
 
 const api = new AnalyticsSDK("http://localhost:3001", 30_000);
 const usd = (units: bigint) => `$${(Number(units) / 10_000_000).toFixed(2)}`;

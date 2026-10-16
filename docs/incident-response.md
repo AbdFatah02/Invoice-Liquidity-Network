@@ -51,7 +51,7 @@ A compromised SDK package (e.g. via stolen npm credentials or malicious transiti
 1. **Unpublish / Deprecate Compromised NPM Releases**:
    ```bash
    # Deprecate the compromised package version immediately on npm registry
-   npm deprecate @invoice-liquidity/sdk@<COMPROMISED_VERSION> "CRITICAL SECURITY ADVISORY: Do not use this version. Upgrade to patched release."
+   npm deprecate @iln/sdk@<COMPROMISED_VERSION> "CRITICAL SECURITY ADVISORY: Do not use this version. Upgrade to patched release."
    ```
 2. **Verify SLSA Level 3 Provenance Attestation**:
    Compare published artifact digests against GitHub Actions build attestations to confirm clean release hashes:
@@ -60,7 +60,7 @@ A compromised SDK package (e.g. via stolen npm credentials or malicious transiti
    ```
 3. **Notify Downstream Consumers & Frontend Team**:
    - Instruct the **Frontend Team** to execute an emergency deployment pinning a verified safe SDK version ([Frontend Runbook Procedures](https://github.com/Invoice-Liquidity-Network/ILN-Frontend/blob/main/docs/incident-response.md#step-2-emergency-vercel-rollback-sev-1-mitigation)).
-   - Issue an advisory instructing third-party integrators to verify lockfile integrity (`pnpm-lock.yaml`) and check package signatures via `npm audit signatures @invoice-liquidity/sdk`.
+   - Issue an advisory instructing third-party integrators to verify lockfile integrity (`pnpm-lock.yaml`) and check package signatures via `npm audit signatures @iln/sdk`.
 4. **Publish Clean Patch Release**:
    Publish a patched version built exclusively via automated CI (`.github/workflows/sdk-release.yml`) with updated SLSA attestations.
 

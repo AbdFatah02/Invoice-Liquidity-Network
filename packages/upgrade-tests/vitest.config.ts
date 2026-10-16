@@ -6,7 +6,6 @@ export default defineConfig({
     alias: {
       '@iln/shared': resolve(__dirname, '../shared/src/index.ts'),
       '@iln/sdk': resolve(__dirname, '../../sdk/src/index.ts'),
-      '@invoice-liquidity/sdk': resolve(__dirname, '../../sdk/src/index.ts'),
     },
   },
   test: {

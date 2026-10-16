@@ -4,7 +4,6 @@ import { defineConfig } from 'vitest/config';
 export default defineConfig({
   resolve: {
     alias: {
-      '@invoice-liquidity/sdk': resolve(__dirname, 'sdk/src/index.ts'),
       '@iln/sdk': resolve(__dirname, 'sdk/src/index.ts'),
       '@iln/oracle-service': resolve(__dirname, 'oracle-service/src/index.ts'),
       '@iln/shared': resolve(__dirname, 'packages/shared/src/index.ts'),

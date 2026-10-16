@@ -16,7 +16,7 @@ ILN is a decentralized invoice factoring protocol built on Soroban smart contrac
 
 #### What is live today:
 - **Core Invoice Factoring Contracts**: Immutable invoice lifecycle execution, escrow handling, and settlement logic on Soroban.
-- **TypeScript SDK & CLI**: Production-ready `@invoice-liquidity/sdk` and `@invoice-liquidity/cli` for programmatic invoice creation, funding, and status querying.
+- **TypeScript SDK & CLI**: Production-ready `@iln/sdk` and `@invoice-liquidity/cli` for programmatic invoice creation, funding, and status querying.
 - **Production Indexer**: Real-time event ingestion with GraphQL, REST endpoints, and automated SQLite database backups.
 - **Notification Service**: Webhook, Email, and SMS alerts for funding, payment, and due-date events.
 - **Decentralized Governance**: Multi-sig administrative quorum and timelock parameter change mechanisms.
