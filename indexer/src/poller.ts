@@ -1,11 +1,19 @@
 import type { rpc as StellarRpc } from '@stellar/stellar-sdk';
 import { CONFIG } from './config';
 import { getCursorLedger, setCursorLedger, rollbackToLedger } from './db';
+import { reorgAbortionsTotal, reorgRollbacksTotal } from './metrics';
 import { processEvent } from './processor';
 import { server } from './rpc';
 
 const BATCH_SIZE = 200;
 const CONFIRMATION_DEPTH = 10;
+
+/**
+ * Maximum number of same-cycle rollbacks accepted before the cycle is aborted.
+ * A node tip that keeps falling below the cursor is a persistent re-org (or a
+ * misbehaving RPC) and must not be hidden by an unbounded retry loop (#1256).
+ */
+const MAX_REORG_RETRIES = 3;
 
 /**
  * Run one full polling cycle:
@@ -16,10 +24,17 @@ const CONFIRMATION_DEPTH = 10;
  *
  * Re-scanning the last processed ledger on every poll is intentional — it
  * protects the ledger boundary against missed events. Deduplication avoids
- * reprocessing unchanged events; removed events are not rolled back on re-org.
+ * reprocessing unchanged events.
+ *
+ * Cursor state is mutable: a chain re-org can push the node tip *below* the
+ * stored cursor. When that happens we roll the persisted cursor (and any derived
+ * events above the new tip) back to the tip and re-scan in the same cycle. The
+ * re-scan is bounded by `MAX_REORG_RETRIES`; a re-org that never stabilises is
+ * surfaced as an error rather than silently trusting a cursor above the chain
+ * head (#1256).
  */
 export async function pollOnce(): Promise<void> {
-  const stored = getCursorLedger();
+  let stored = getCursorLedger();
 
   // ── Determine start ledger ────────────────────────────────────────────────
   let startLedger: number;
@@ -44,19 +59,38 @@ export async function pollOnce(): Promise<void> {
   let paginationCursor: string | undefined;
   let highestEventLedger = stored;
   let latestKnownLedger = stored;
+  let reorgsThisCycle = 0;
 
-  do {
+  // A `while (true)` loop (rather than `do … while (paginationCursor)`) so that a
+  // detected re-org re-scans from the rolled-back ledger within the *same* cycle
+  // instead of exiting while the local cursor still points above the chain head.
+  for (;;) {
     const request: StellarRpc.Api.GetEventsRequest = paginationCursor
       ? { cursor: paginationCursor, filters, limit: BATCH_SIZE }
       : { startLedger, filters, limit: BATCH_SIZE };
-
 
     const response = await server.getEvents(request);
     latestKnownLedger = response.latestLedger;
 
     if (latestKnownLedger < stored) {
-      console.warn(`[poller] Chain reorg detected! Latest ledger (${latestKnownLedger}) is behind cursor (${stored}). Rolling back...`);
+      reorgsThisCycle += 1;
+      if (reorgsThisCycle > MAX_REORG_RETRIES) {
+        // Persistent re-org (or a misbehaving node): stop advancing and surface
+        // the failure. The cursor stays at the last known-good ledger.
+        reorgAbortionsTotal.inc();
+        throw new Error(
+          `[poller] Chain reorg did not stabilise after ${MAX_REORG_RETRIES} rollbacks ` +
+            `(cursor=${stored}, latest=${latestKnownLedger}). Aborting this cycle; ` +
+            'cursor remains at the last known-good ledger.'
+        );
+      }
+
+      console.warn(
+        `[poller] Chain reorg detected! Latest ledger (${latestKnownLedger}) is behind ` +
+          `cursor (${stored}). Rolling back (attempt ${reorgsThisCycle}/${MAX_REORG_RETRIES}).`
+      );
       rollbackToLedger(latestKnownLedger);
+      reorgRollbacksTotal.inc();
       stored = latestKnownLedger;
       startLedger = latestKnownLedger;
       highestEventLedger = latestKnownLedger;
@@ -64,6 +98,8 @@ export async function pollOnce(): Promise<void> {
       continue;
     }
 
+    // Forward progress re-establishes the re-org detection budget.
+    reorgsThisCycle = 0;
 
     for (const event of response.events) {
       if (latestKnownLedger - event.ledger < CONFIRMATION_DEPTH) {
@@ -83,7 +119,9 @@ export async function pollOnce(): Promise<void> {
       setCursorLedger(highestEventLedger);
       stored = highestEventLedger;
     }
-  } while (paginationCursor);
+
+    if (!paginationCursor) break;
+  }
 
   // ── Advance cursor ────────────────────────────────────────────────────────
   // Save up to (latestLedger - CONFIRMATION_DEPTH) so next poll starts from the confirmed tip,

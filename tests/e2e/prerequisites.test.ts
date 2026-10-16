@@ -1,10 +1,13 @@
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
+import * as StellarSdk from '@stellar/stellar-sdk';
 import {
   E2EPrerequisiteError,
   isPlaceholderContractId,
   optionalContractId,
   requireContractId,
   requireHealthyRpc,
+  resolveRpcRetryPolicy,
+  retryDelayMs,
   assertPrerequisitesSatisfied,
   evaluatePrerequisites,
   skipsAllowed,
@@ -168,5 +171,86 @@ describe('E2E prerequisite control', () => {
         })
       ).rejects.toThrow('assertion boom');
     });
+  });
+});
+
+/**
+ * Regression coverage for the bounded RPC retry policy (#1253): transient
+ * failures are retried a finite number of times, but a persistent failure is
+ * still surfaced — retrying must never hide an unreachable node.
+ */
+describe('E2E RPC retry policy (#1253)', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('defaults to a bounded policy and honours environment overrides', () => {
+    const defaults = resolveRpcRetryPolicy({}, {});
+    expect(defaults.attempts).toBe(3);
+    expect(defaults.baseDelayMs).toBe(250);
+    expect(defaults.maxDelayMs).toBe(2000);
+
+    const overridden = resolveRpcRetryPolicy(
+      {},
+      {
+        E2E_RPC_RETRY_ATTEMPTS: '5',
+        E2E_RPC_RETRY_BASE_MS: '10',
+        E2E_RPC_RETRY_MAX_MS: '40',
+      }
+    );
+    expect(overridden.attempts).toBe(5);
+    expect(overridden.baseDelayMs).toBe(10);
+    expect(overridden.maxDelayMs).toBe(40);
+  });
+
+  it('caps the backoff delay at maxDelayMs', () => {
+    const policy = { attempts: 5, baseDelayMs: 100, maxDelayMs: 400, sleep: async () => {} };
+    expect(retryDelayMs(0, policy)).toBe(100);
+    expect(retryDelayMs(1, policy)).toBe(200);
+    expect(retryDelayMs(2, policy)).toBe(400);
+    expect(retryDelayMs(9, policy)).toBe(400);
+  });
+
+  it('retries transient transport failures and succeeds once the node is healthy', async () => {
+    const getHealth = vi
+      .spyOn(StellarSdk.rpc.Server.prototype, 'getHealth')
+      .mockRejectedValueOnce(new Error('fetch failed'))
+      .mockRejectedValueOnce(new Error('ECONNREFUSED'))
+      .mockResolvedValue({ status: 'healthy' } as any);
+
+    const server = await requireHealthyRpc('http://localhost:8000/soroban/rpc', {
+      retry: { attempts: 3, baseDelayMs: 1, maxDelayMs: 1, sleep: async () => {} },
+    });
+
+    expect(server).toBeInstanceOf(StellarSdk.rpc.Server);
+    expect(getHealth).toHaveBeenCalledTimes(3);
+  });
+
+  it('never hides a persistent RPC failure: it throws after the bounded attempts', async () => {
+    const getHealth = vi
+      .spyOn(StellarSdk.rpc.Server.prototype, 'getHealth')
+      .mockRejectedValue(new Error('connect ECONNREFUSED'));
+
+    await expect(
+      requireHealthyRpc('http://127.0.0.1:1/soroban/rpc', {
+        retry: { attempts: 3, baseDelayMs: 1, maxDelayMs: 1, sleep: async () => {} },
+      })
+    ).rejects.toThrow(/is unreachable .* after 3 attempts/);
+
+    expect(getHealth).toHaveBeenCalledTimes(3);
+  });
+
+  it('does not retry when the policy allows a single attempt', async () => {
+    const getHealth = vi
+      .spyOn(StellarSdk.rpc.Server.prototype, 'getHealth')
+      .mockRejectedValue(new Error('connect ECONNREFUSED'));
+
+    await expect(
+      requireHealthyRpc('http://127.0.0.1:1/soroban/rpc', {
+        retry: { attempts: 1, sleep: async () => {} },
+      })
+    ).rejects.toThrow(/after 1 attempt/);
+
+    expect(getHealth).toHaveBeenCalledTimes(1);
   });
 });

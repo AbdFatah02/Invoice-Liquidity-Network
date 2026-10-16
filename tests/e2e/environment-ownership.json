@@ -1,0 +1,38 @@
+{
+  "control": "e2e-environment-ownership",
+  "version": 1,
+  "owners": {
+    "primary": "release-engineering",
+    "secondary": "e2e-suite-maintainers",
+    "escalation": "security-oncall"
+  },
+  "environment": {
+    "name": "e2e-local-stellar",
+    "provider": "github-actions-ubuntu-latest",
+    "node_image": "stellar/quickstart:testing",
+    "rpc_url": "http://localhost:8000/soroban/rpc"
+  },
+  "rotation": {
+    "interval_days": 90,
+    "min_remaining_days": 14,
+    "credentials": [
+      {
+        "name": "E2E contract deployer identity",
+        "type": "stellar-keypair",
+        "location": "GitHub Actions secret E2E_DEPLOYER_SECRET_KEY",
+        "rotation_days": 90,
+        "last_rotated": "2026-10-01",
+        "next_rotation_due": "2026-12-30"
+      },
+      {
+        "name": "E2E contract admin identity",
+        "type": "stellar-keypair",
+        "location": "GitHub Actions secret E2E_ADMIN_SECRET_KEY",
+        "rotation_days": 90,
+        "last_rotated": "2026-10-01",
+        "next_rotation_due": "2026-12-30"
+      }
+    ]
+  },
+  "runbook": "docs/runbooks/e2e-environment-ownership.md"
+}

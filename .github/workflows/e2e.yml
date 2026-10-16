@@ -9,6 +9,9 @@ on:
       - 'packages/**'
       - 'scripts/provision-e2e-contract.mjs'
       - 'scripts/check-e2e-coverage.mjs'
+      - 'scripts/check-e2e-environment-rotation.mjs'
+      - 'scripts/build-e2e-evidence-bundle.mjs'
+      - 'docs/runbooks/e2e-*.md'
       - '.github/workflows/e2e.yml'
       - 'pnpm-workspace.yaml'
       - 'package.json'
@@ -21,6 +24,9 @@ on:
       - 'packages/**'
       - 'scripts/provision-e2e-contract.mjs'
       - 'scripts/check-e2e-coverage.mjs'
+      - 'scripts/check-e2e-environment-rotation.mjs'
+      - 'scripts/build-e2e-evidence-bundle.mjs'
+      - 'docs/runbooks/e2e-*.md'
       - '.github/workflows/e2e.yml'
   workflow_dispatch:
 
@@ -47,17 +53,26 @@ jobs:
       - name: Setup pnpm with store cache
         uses: ./.github/actions/setup-pnpm
 
-      - name: Wait for Stellar RPC
+      # ── #1253: bounded RPC readiness retries, recorded as release evidence ─────
+      # The retry loop is bounded: it never masks a persistently unreachable node,
+      # and the number of attempts is written to .artifacts/rpc-wait.json so the
+      # release evidence bundle (#1255) can prove how the RPC behaved.
+      - name: Wait for Stellar RPC (bounded retries)
         run: |
+          mkdir -p .artifacts
           echo "Waiting for Stellar node to be healthy..."
+          attempts=0
           for i in $(seq 1 60); do
+            attempts=$i
             if curl -sf http://localhost:8000/soroban/rpc -X POST -H "Content-Type: application/json" -d '{"jsonrpc":"2.0","id":1,"method":"getLatestLedger"}' > /dev/null 2>&1; then
-              echo "Stellar node RPC is ready"
+              echo "Stellar node RPC is ready after ${i} attempt(s)"
+              node -e "require('fs').writeFileSync('.artifacts/rpc-wait.json', JSON.stringify({ attempts: Number(process.argv[1]), ready: true, checked_at: new Date().toISOString() }, null, 2))" "$i"
               exit 0
             fi
             sleep 2
           done
           echo "Stellar node failed to start within timeout"
+          node -e "require('fs').writeFileSync('.artifacts/rpc-wait.json', JSON.stringify({ attempts: Number(process.argv[1]), ready: false, checked_at: new Date().toISOString() }, null, 2))" "$attempts"
           docker compose -f tests/e2e/docker-compose.yml logs
           exit 1
 
@@ -110,8 +125,41 @@ jobs:
           # forbidden on CI, and check-e2e-coverage.mjs fails the run if it is set.
 
       - name: Enforce E2E coverage gate (no skips, every suite executed, no placeholders)
+        id: coverage
+        if: always()
         run: |
           node scripts/check-e2e-coverage.mjs --report=.artifacts/e2e-results.json --scan-sources
+
+      # Machine-readable copy of the coverage verdict for the evidence bundle.
+      - name: Capture E2E coverage verdict
+        if: always()
+        run: |
+          node scripts/check-e2e-coverage.mjs --report=.artifacts/e2e-results.json --json \
+            > .artifacts/e2e-coverage.json 2>/dev/null || true
+
+      # ── #1254: environment ownership & credential rotation gate ────────────────
+      - name: Check E2E environment ownership & rotation
+        id: ownership
+        if: always()
+        run: |
+          node scripts/check-e2e-environment-rotation.mjs \
+            --manifest=tests/e2e/environment-ownership.json \
+            --report=.artifacts/e2e-ownership.json
+
+      # ── #1255: assemble the release evidence bundle ────────────────────────────
+      # Runs even when an earlier gate failed, so the bundle records *why* the run
+      # was not releasable instead of disappearing with the job.
+      - name: Build E2E release evidence bundle
+        if: always()
+        run: |
+          node scripts/build-e2e-evidence-bundle.mjs \
+            --root=. \
+            --results=.artifacts/e2e-results.json \
+            --ownership=tests/e2e/environment-ownership.json \
+            --rpc-wait=.artifacts/rpc-wait.json \
+            --coverage-report=.artifacts/e2e-coverage.json \
+            --coverage-exit=${{ steps.coverage.outcome == 'success' && '0' || '1' }} \
+            --out=.artifacts/e2e-evidence-bundle.json
 
       - name: Upload E2E evidence artifact
         if: always()

@@ -24,6 +24,10 @@
  *        escape hatch `E2E_ALLOW_SKIP=1`. CI never sets it, and
  *        `scripts/check-e2e-coverage.mjs` (#1243) fails the build on any skipped
  *        test, so the escape hatch cannot be used to green a release.
+ *   I4 — RPC availability is retried with bounded exponential backoff (#1253):
+ *        transient transport failures are retried a finite number of times, but a
+ *        persistent failure is *never* hidden — it is still surfaced as the same
+ *        actionable `E2EPrerequisiteError`, annotated with the attempt count.
  *
  * See docs/runbooks/e2e-prerequisites.md for the operator runbook (control,
  * owner, recovery path) and docs/e2e-test-scope.md for the audit trail.
@@ -33,6 +37,7 @@ import * as StellarSdk from '@stellar/stellar-sdk';
 /** Failure raised when an E2E prerequisite is not satisfied. */
 export class E2EPrerequisiteError extends Error {
   readonly prerequisite: string;
+  readonly detail: string;
   readonly recovery: string;
 
   constructor(prerequisite: string, detail: string, recovery: string) {
@@ -46,6 +51,7 @@ export class E2EPrerequisiteError extends Error {
     );
     this.name = 'E2EPrerequisiteError';
     this.prerequisite = prerequisite;
+    this.detail = detail;
     this.recovery = recovery;
   }
 }
@@ -180,36 +186,117 @@ export function optionalContractId(envVar: string): string | undefined {
 }
 
 /**
- * Fail actionably unless the Soroban RPC is reachable and healthy (I1).
+ * Bounded retry policy for transient RPC transport failures (#1253).
+ *
+ * The retry is deliberately *bounded*: a persistent failure is retried a finite
+ * number of times and then surfaced with the same actionable error, so retrying
+ * can never green a release that has no reachable node.
+ */
+export interface RpcRetryPolicy {
+  /** Total number of attempts, including the first (default 3, or `E2E_RPC_RETRY_ATTEMPTS`). */
+  attempts: number;
+  /** Base backoff delay in milliseconds (default 250, or `E2E_RPC_RETRY_BASE_MS`). */
+  baseDelayMs: number;
+  /** Upper bound on the backoff delay in milliseconds (default 2 000, or `E2E_RPC_RETRY_MAX_MS`). */
+  maxDelayMs: number;
+  /** Sleep implementation, injectable so tests do not wait on real timers. */
+  sleep: (ms: number) => Promise<void>;
+}
+
+function envPositiveInt(name: string, fallback: number, env: NodeJS.ProcessEnv): number {
+  const raw = env[name];
+  if (!raw) return fallback;
+  const parsed = Number.parseInt(raw, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+/** Resolve the retry policy from explicit overrides, environment, then defaults. */
+export function resolveRpcRetryPolicy(
+  overrides: Partial<RpcRetryPolicy> = {},
+  env: NodeJS.ProcessEnv = process.env
+): RpcRetryPolicy {
+  return {
+    attempts: Math.max(
+      1,
+      overrides.attempts ?? envPositiveInt('E2E_RPC_RETRY_ATTEMPTS', 3, env)
+    ),
+    baseDelayMs: overrides.baseDelayMs ?? envPositiveInt('E2E_RPC_RETRY_BASE_MS', 250, env),
+    maxDelayMs: overrides.maxDelayMs ?? envPositiveInt('E2E_RPC_RETRY_MAX_MS', 2_000, env),
+    sleep: overrides.sleep ?? ((ms: number) => new Promise((resolve) => setTimeout(resolve, ms))),
+  };
+}
+
+/** Backoff delay for a 0-based attempt index, capped at `maxDelayMs`. */
+export function retryDelayMs(attemptIndex: number, policy: RpcRetryPolicy): number {
+  return Math.min(policy.baseDelayMs * 2 ** attemptIndex, policy.maxDelayMs);
+}
+
+function describeError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+/**
+ * Fail actionably unless the Soroban RPC is reachable and healthy (I1/I4).
+ *
+ * Transient transport failures are retried with bounded exponential backoff; a
+ * persistent failure (all attempts exhausted) still throws the actionable
+ * `E2EPrerequisiteError`, annotated with the attempt count so the failure is
+ * operator-visible rather than buried under retries (#1253).
  *
  * @returns the connected `rpc.Server`, ready for use by the suite.
  */
 export async function requireHealthyRpc(
   rpcUrl: string,
-  options: { allowHttp?: boolean; env?: NodeJS.ProcessEnv } = {}
+  options: {
+    allowHttp?: boolean;
+    env?: NodeJS.ProcessEnv;
+    retry?: Partial<RpcRetryPolicy>;
+  } = {}
 ): Promise<StellarSdk.rpc.Server> {
   const server = new StellarSdk.rpc.Server(rpcUrl, { allowHttp: options.allowHttp ?? true });
+  const policy = resolveRpcRetryPolicy(options.retry, options.env);
+  let lastError: unknown;
 
-  let health: StellarSdk.rpc.Api.GetHealthResponse;
-  try {
-    health = await server.getHealth();
-  } catch (error) {
+  for (let attempt = 1; attempt <= policy.attempts; attempt++) {
+    try {
+      const health = await server.getHealth();
+      if (health.status !== 'healthy') {
+        throw new E2EPrerequisiteError(
+          'stellar rpc health',
+          `${rpcUrl} reported status "${health.status}" (expected "healthy")`,
+          RECOVERY_NODE
+        );
+      }
+      return server;
+    } catch (error) {
+      lastError = error;
+
+      if (attempt >= policy.attempts) break;
+
+      const delayMs = retryDelayMs(attempt - 1, policy);
+      console.warn(
+        `[e2e] RPC ${rpcUrl} attempt ${attempt}/${policy.attempts} failed ` +
+          `(${describeError(error)}); retrying in ${delayMs}ms.`
+      );
+      await policy.sleep(delayMs);
+    }
+  }
+
+  // Persistent failure: never hidden behind the retries.
+  if (lastError instanceof E2EPrerequisiteError) {
     throw new E2EPrerequisiteError(
-      'stellar rpc',
-      `${rpcUrl} is unreachable (${error instanceof Error ? error.message : String(error)})`,
-      RECOVERY_NODE
+      lastError.prerequisite,
+      `${lastError.detail} (after ${policy.attempts} attempt${policy.attempts === 1 ? '' : 's'})`,
+      lastError.recovery
     );
   }
 
-  if (health.status !== 'healthy') {
-    throw new E2EPrerequisiteError(
-      'stellar rpc health',
-      `${rpcUrl} reported status "${health.status}" (expected "healthy")`,
-      RECOVERY_NODE
-    );
-  }
-
-  return server;
+  throw new E2EPrerequisiteError(
+    'stellar rpc',
+    `${rpcUrl} is unreachable (${describeError(lastError)}) after ` +
+      `${policy.attempts} attempt${policy.attempts === 1 ? '' : 's'}`,
+    RECOVERY_NODE
+  );
 }
 
 /**

@@ -37,6 +37,18 @@ export const lastProcessedLedger = new Gauge({
   registers: [registry],
 });
 
+export const reorgRollbacksTotal = new Counter({
+  name: 'iln_reorg_rollbacks_total',
+  help: 'Number of chain reorganisations detected and rolled back by the poller',
+  registers: [registry],
+});
+
+export const reorgAbortionsTotal = new Counter({
+  name: 'iln_reorg_abortions_total',
+  help: 'Number of polling cycles aborted because the chain reorg did not stabilise',
+  registers: [registry],
+});
+
 export const cursorUpdatedAt = new Gauge({
   name: 'iln_cursor_updated_at',
   help: 'Timestamp (ms) when cursor was last updated',
