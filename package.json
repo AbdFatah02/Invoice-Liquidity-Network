@@ -74,8 +74,7 @@
     "test:test-runtime-budgets": "node --test scripts/__tests__/check-test-runtime-budgets.test.mjs",
     "sdk:compat-matrix": "node scripts/check-sdk-compat-matrix.mjs",
     "test:sdk-compat-versions": "node --test scripts/__tests__/sdk-compat-versions.test.mjs",
-    "check:sdk-package-names": "node scripts/check-sdk-package-names.mjs",
-    "test:sdk-package-names": "node --test scripts/__tests__/check-sdk-package-names.test.mjs"
+    "check:sdk-release-gates": "node scripts/check-sdk-release-gates.mjs"
   },
   "devDependencies": {
     "@changesets/cli": "^2.31.0",
