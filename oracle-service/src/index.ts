@@ -6,6 +6,11 @@ import { Address } from '@stellar/stellar-sdk';
 import { traceMiddleware, withSpan, propagateFetch } from '@iln/opentelemetry';
 
 import { createOracleCache } from './cache';
+import {
+  classifyPayerVerdict,
+  payerAuthorizationErrorBody,
+  type PayerAuthorizationFailureCode,
+} from './authorization';
 import { createOracleMetrics } from './metrics';
 import { AuditTrail, DEFAULT_AUDIT_RETENTION_MS } from './audit-trail';
 import { createAuditStore, type AuditRowStore } from './audit-store';
@@ -137,7 +142,8 @@ function trackAbuse(
 
 function createRateLimitMiddleware(
   windowMs: number = DEFAULT_RATE_LIMIT_WINDOW_MS,
-  maxRequests: number = DEFAULT_RATE_LIMIT_MAX_REQUESTS
+  maxRequests: number = DEFAULT_RATE_LIMIT_MAX_REQUESTS,
+  onReject: (code: PayerAuthorizationFailureCode) => void = () => {}
 ) {
   const store = new Map<string, RateLimitStore>();
   // Owned by the middleware instance rather than the module: a process running
@@ -153,11 +159,14 @@ function createRateLimitMiddleware(
     const payer = typeof req.body?.payer === 'string' ? req.body.payer : undefined;
     const abuseCheck = trackAbuse(abuse, clientIp, payer);
     if (abuseCheck.blocked) {
-      res.status(429).json({
-        error: 'Request blocked',
-        reason: abuseCheck.reason,
-        retryAfter: Math.ceil(BLOCK_DURATION_MS / 1000),
-      });
+      onReject('PAYER_ABUSE_BLOCKED');
+      res.status(429).json(
+        payerAuthorizationErrorBody('PAYER_ABUSE_BLOCKED', {
+          error: 'Request blocked',
+          reason: abuseCheck.reason,
+          retryAfter: Math.ceil(BLOCK_DURATION_MS / 1000),
+        })
+      );
       return;
     }
 
@@ -171,10 +180,13 @@ function createRateLimitMiddleware(
 
     storedEntry.count += 1;
     if (storedEntry.count > maxRequests) {
-      res.status(429).json({
-        error: 'Rate limit exceeded',
-        retryAfter: Math.ceil((storedEntry.windowStart + windowMs - now) / 1000),
-      });
+      onReject('PAYER_RATE_LIMITED');
+      res.status(429).json(
+        payerAuthorizationErrorBody('PAYER_RATE_LIMITED', {
+          error: 'Rate limit exceeded',
+          retryAfter: Math.ceil((storedEntry.windowStart + windowMs - now) / 1000),
+        })
+      );
       return;
     }
 
@@ -577,7 +589,11 @@ export async function createOracleApp(
 
   // Apply rate limiting middleware if enabled
   if (resolved.enableRateLimit) {
-    app.use(createRateLimitMiddleware(resolved.rateLimitWindowMs, resolved.rateLimitMaxRequests));
+    app.use(
+      createRateLimitMiddleware(resolved.rateLimitWindowMs, resolved.rateLimitMaxRequests, (code) =>
+        rejectPayerCheck(code)
+      )
+    );
   }
 
   app.use(express.json({ limit: '256kb' }));
@@ -733,6 +749,22 @@ export async function createOracleApp(
     res.json({ payer, invalidated });
   });
 
+  /**
+   * Count and log a payer check that ended before a verdict existed (#1232).
+   * Payer addresses are truncated in logs, matching the tracing span.
+   */
+  function rejectPayerCheck(code: PayerAuthorizationFailureCode, payer?: string): void {
+    metrics.recordPayerAuthorization({ codes: [code], stage: 'request', cacheHit: false });
+    console.warn(
+      JSON.stringify({
+        event: 'oracle.payer_authorization.denied',
+        stage: 'request',
+        code,
+        payer: payer ? payer.slice(0, 8) : null,
+      })
+    );
+  }
+
   async function handleVerification(req: Request, res: Response): Promise<void> {
     const body = (req.body ?? {}) as Partial<OracleVerificationRequest> & Record<string, unknown>;
     const payer = String(body.payer ?? '').trim();
@@ -740,14 +772,14 @@ export async function createOracleApp(
     const invoiceId = body.invoiceId ?? body.invoice_id;
 
     if (!payer || !amount || invoiceId === undefined || invoiceId === null) {
-      res.status(400).json({
-        error: 'payer, amount, and invoiceId are required',
-      });
+      rejectPayerCheck('PAYER_REQUEST_MALFORMED', payer);
+      res.status(400).json(payerAuthorizationErrorBody('PAYER_REQUEST_MALFORMED'));
       return;
     }
 
     if (!isValidStellarAddress(payer)) {
-      res.status(400).json({ error: 'payer must be a valid Stellar address' });
+      rejectPayerCheck('PAYER_ADDRESS_INVALID', payer);
+      res.status(400).json(payerAuthorizationErrorBody('PAYER_ADDRESS_INVALID'));
       return;
     }
 
@@ -792,6 +824,28 @@ export async function createOracleApp(
         cacheHit: response.cacheHit,
       });
 
+      // #1232: every verdict is partitioned by taxonomy code, so a shift in
+      // *why* payers are denied is visible without parsing evidence strings.
+      const authorization = response.authorization ?? classifyPayerVerdict(response);
+      metrics.recordPayerAuthorization({
+        codes: authorization.failures.map((f) => f.code),
+        stage: 'verdict',
+        cacheHit: response.cacheHit,
+      });
+      if (authorization.decision === 'deny') {
+        console.warn(
+          JSON.stringify({
+            event: 'oracle.payer_authorization.denied',
+            stage: 'verdict',
+            code: authorization.primary,
+            codes: authorization.failures.map((f) => f.code),
+            payer: payer.slice(0, 8),
+            invoiceId: String(invoiceId),
+            cacheHit: response.cacheHit,
+          })
+        );
+      }
+
       // Delta-bound guard observations (issue #1052): a violation must ALERT
       // as well as HOLD, so the violation counter and the active-hold gauge
       // are both written on the request path.
@@ -834,17 +888,23 @@ export async function createOracleApp(
         // than serving a fabricated answer.
         metrics.degradedResponsesTotal.inc();
         degradedResponses += 1;
-        res.status(503).json({
-          error: 'Oracle unavailable',
-          degraded: true,
-          message: error.message,
-        });
+        rejectPayerCheck('ORACLE_SOURCES_UNAVAILABLE', payer);
+        res.status(503).json(
+          payerAuthorizationErrorBody('ORACLE_SOURCES_UNAVAILABLE', {
+            error: 'Oracle unavailable',
+            degraded: true,
+            message: error.message,
+          })
+        );
         return;
       }
-      res.status(500).json({
-        error: 'Oracle verification failed',
-        message: error instanceof Error ? error.message : String(error),
-      });
+      rejectPayerCheck('ORACLE_INTERNAL_ERROR', payer);
+      res.status(500).json(
+        payerAuthorizationErrorBody('ORACLE_INTERNAL_ERROR', {
+          error: 'Oracle verification failed',
+          message: error instanceof Error ? error.message : String(error),
+        })
+      );
     }
   }
 
@@ -942,3 +1002,16 @@ export {
   fetchOnChainReputation,
 } from './verifier';
 export { MockKYBProvider } from './kyb/mockProvider';
+export {
+  PAYER_AUTHORIZATION_FAILURES,
+  PAYER_AUTHORIZATION_FAILURE_CODES,
+  PAYER_AUTHORIZATION_TAXONOMY_VERSION,
+  classifyPayerVerdict,
+  enforcePayerAuthorization,
+} from './authorization';
+export type {
+  PayerAuthorizationDecision,
+  PayerAuthorizationFailure,
+  PayerAuthorizationFailureCategory,
+  PayerAuthorizationFailureCode,
+} from './authorization';

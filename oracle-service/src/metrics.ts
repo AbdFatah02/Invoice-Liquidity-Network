@@ -1,5 +1,11 @@
 import client, { type Registry } from 'prom-client';
 
+import {
+  PAYER_AUTHORIZATION_FAILURES,
+  PAYER_AUTHORIZATION_TAXONOMY_VERSION,
+  type PayerAuthorizationFailureCode,
+} from './authorization';
+
 /**
  * Latency SLOs per oracle pipeline stage, in milliseconds (issue #1054).
  *
@@ -77,8 +83,24 @@ export interface OracleMetrics {
   sourceHealthState: client.Gauge<string>;
   /** Source health transitions away from healthy — the failover trigger. */
   failoverEventsTotal: client.Counter<string>;
+  /** Payer checks by authorization decision (allow / deny), #1232. */
+  payerAuthorizationDecisionsTotal: client.Counter<string>;
+  /** Payer authorization failures by taxonomy code and category, #1232. */
+  payerAuthorizationFailuresTotal: client.Counter<string>;
+  /** Constant 1 labelled with the active taxonomy version — proof the control is loaded. */
+  payerAuthorizationTaxonomyInfo: client.Gauge<string>;
   /** Record one verdict against the outcome, fraud and ratio metrics. */
   recordVerificationOutcome(result: VerificationOutcomeSample): void;
+  /** Record one payer check's authorization result against the taxonomy metrics. */
+  recordPayerAuthorization(sample: PayerAuthorizationSample): void;
+}
+
+export interface PayerAuthorizationSample {
+  /** Every failure code that applied; empty for an allowed payer. */
+  codes: PayerAuthorizationFailureCode[];
+  /** `request` for checks rejected before a verdict existed. */
+  stage: 'request' | 'verdict';
+  cacheHit: boolean;
 }
 
 export interface VerificationOutcomeSample {
@@ -272,6 +294,43 @@ export function createOracleMetrics(): OracleMetrics {
     registers: [registry],
   });
 
+  const payerAuthorizationDecisionsTotal = new client.Counter({
+    name: 'oracle_payer_authorization_decisions_total',
+    help: 'Payer checks by authorization decision (allow/deny)',
+    labelNames: ['decision', 'stage'] as const,
+    registers: [registry],
+  });
+
+  const payerAuthorizationFailuresTotal = new client.Counter({
+    name: 'oracle_payer_authorization_failures_total',
+    help: 'Payer authorization failures by taxonomy code',
+    labelNames: ['code', 'category', 'primary', 'cache_hit'] as const,
+    registers: [registry],
+  });
+
+  const payerAuthorizationTaxonomyInfo = new client.Gauge({
+    name: 'oracle_payer_authorization_taxonomy_info',
+    help: 'Active payer authorization failure taxonomy version (always 1)',
+    labelNames: ['version'] as const,
+    registers: [registry],
+  });
+  payerAuthorizationTaxonomyInfo.set({ version: PAYER_AUTHORIZATION_TAXONOMY_VERSION }, 1);
+
+  function recordPayerAuthorization(sample: PayerAuthorizationSample): void {
+    payerAuthorizationDecisionsTotal.inc({
+      decision: sample.codes.length === 0 ? 'allow' : 'deny',
+      stage: sample.stage,
+    });
+    sample.codes.forEach((code, index) => {
+      payerAuthorizationFailuresTotal.inc({
+        code,
+        category: PAYER_AUTHORIZATION_FAILURES[code].category,
+        primary: String(index === 0),
+        cache_hit: String(sample.cacheHit),
+      });
+    });
+  }
+
   // Bounded ring of recent verdicts backing the ratio gauge.
   const recentFlags: boolean[] = [];
 
@@ -344,6 +403,10 @@ export function createOracleMetrics(): OracleMetrics {
     deltaQuorumConfirmationsTotal,
     sourceHealthState,
     failoverEventsTotal,
+    payerAuthorizationDecisionsTotal,
+    payerAuthorizationFailuresTotal,
+    payerAuthorizationTaxonomyInfo,
     recordVerificationOutcome: wrappedRecordVerificationOutcome,
+    recordPayerAuthorization,
   };
 }
