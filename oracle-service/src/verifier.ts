@@ -28,12 +28,16 @@ import type {
 } from './types';
 import type { OracleMetrics } from './metrics';
 import { AGGREGATE_SLO_MS, FETCH_SLO_MS, PUBLISH_SLO_MS } from './metrics';
-import { buildOracleCacheKey, buildOraclePayerKeyPrefix, resolveCacheTtlSeconds } from './cache';
 import {
   buildOracleCacheKey,
   buildOraclePayerKeyPrefix,
   resolveCacheTtlSeconds,
 } from './cache';
+import {
+  buildCanonicalInvoicePayload,
+  checkPayerSubstitution,
+  verifyPayerSignature,
+} from './canonicalPayload';
 import { enforcePayerAuthorization } from './authorization';
 import { composeVerdict, confidenceLevelFromScore } from './composition';
 import {
@@ -397,6 +401,67 @@ export function assessOracleRequest(input: OracleAssessmentInput): OracleAssessm
     computed.evidence.push(`Payer-invoice binding: ${verificationKey}`);
   }
 
+  // Issue #1229: Reject payer substitutions across invoice lifecycle states
+  const substitution = checkPayerSubstitution({
+    requestInvoiceId: input.request.invoiceId,
+    requestPayer: input.request.payer,
+    history: input.history,
+  });
+  if (substitution.substituted) {
+    const reason =
+      substitution.reason ??
+      `Payer substitution rejected: invoice ${input.request.invoiceId} cannot be substituted`;
+    computed.fraudSignals.push(reason);
+    computed.evidence.push(reason);
+    verdict.isVerified = false;
+    verdict.composition = {
+      ...verdict.composition,
+      outcome: 'rejected-fraud-signals',
+      rationale: reason,
+    };
+  }
+
+  // Issue #1228: Verify payer signatures against canonical invoice payloads
+  const canonicalPayload =
+    input.request.canonicalPayload ??
+    buildCanonicalInvoicePayload({
+      invoiceId: input.request.invoiceId,
+      payer: input.request.payer,
+      amount: input.request.amount,
+    });
+  computed.evidence.push(`Canonical invoice payload: ${canonicalPayload}`);
+
+  if (input.request.payerSignature !== undefined) {
+    const sigCheck = verifyPayerSignature({
+      payer: input.request.payer,
+      signature: input.request.payerSignature,
+      canonicalPayload,
+    });
+    if (!sigCheck.valid) {
+      const reason = `Payer signature invalid: ${sigCheck.reason}`;
+      computed.fraudSignals.push(reason);
+      computed.evidence.push(reason);
+      verdict.isVerified = false;
+      verdict.composition = {
+        ...verdict.composition,
+        outcome: 'rejected-fraud-signals',
+        rationale: reason,
+      };
+    } else {
+      computed.evidence.push('Payer signature verified against canonical invoice payload');
+    }
+  } else if (input.requirePayerSignature) {
+    const reason = 'Payer signature invalid: signature required but missing';
+    computed.fraudSignals.push(reason);
+    computed.evidence.push(reason);
+    verdict.isVerified = false;
+    verdict.composition = {
+      ...verdict.composition,
+      outcome: 'rejected-fraud-signals',
+      rationale: reason,
+    };
+  }
+
   if (!kybPassed && verdict.isVerified) {
     const rationale = `KYB provider (${input.kybResult?.provider}) did not verify the payer.`;
     verdict.isVerified = false;
@@ -516,6 +581,7 @@ export class OracleVerifier {
   private readonly reputationProvider: OracleReputationProvider;
   private readonly kybProvider?: import('./types').VerificationProvider;
   private readonly requireKyb: boolean;
+  private readonly requirePayerSignature: boolean;
   private readonly maxOracleAgeMs: number;
   private readonly externalProvider?: ExternalVerificationProvider;
   private readonly metrics?: OracleMetrics;
@@ -536,6 +602,7 @@ export class OracleVerifier {
     this.reputationProvider = options.reputationProvider;
     this.kybProvider = options.kybProvider;
     this.requireKyb = options.requireKyb ?? false;
+    this.requirePayerSignature = options.requirePayerSignature ?? false;
     this.maxOracleAgeMs = options.maxOracleAgeMs ?? 5 * 60 * 1000;
     this.externalProvider = options.externalProvider;
     this.metrics = options.metrics;
@@ -799,6 +866,7 @@ export class OracleVerifier {
       maxOracleAgeMs: request.maxOracleAgeMs ?? this.maxOracleAgeMs,
       external,
       kybResult: kybVerification,
+      requirePayerSignature: this.requirePayerSignature,
     });
     this.observeStage('aggregate', this.now() - aggregateStart);
 

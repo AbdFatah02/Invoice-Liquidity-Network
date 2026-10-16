@@ -33,6 +33,8 @@ export interface OracleVerificationRequest {
   payer: string;
   amount: string | number | bigint;
   invoiceId: string | number | bigint;
+  payerSignature?: string;
+  canonicalPayload?: string;
   forceRefresh?: boolean;
   requestId?: string;
   maxOracleAgeMs?: number;
@@ -215,6 +217,8 @@ export interface OracleAssessmentInput {
   /** Omitted when no external provider is configured — treated as `unknown`. */
   external?: ExternalVerificationResult;
   kybResult?: KYBVerificationResult;
+  /** Require valid cryptographic payer signature before publishing a positive verdict (Issue #1228). */
+  requirePayerSignature?: boolean;
 }
 
 export interface OracleAssessment {
@@ -275,6 +279,8 @@ export interface OracleVerifierDependencies {
   kybProvider?: VerificationProvider;
   /** Require a successful live KYB check before publishing a positive verdict. */
   requireKyb?: boolean;
+  /** Require a valid cryptographic payer signature before publishing a positive verdict (Issue #1228). */
+  requirePayerSignature?: boolean;
   cache?: OracleCacheReaderWriter;
   now?: () => number;
   cacheTtlSeconds?: number;
@@ -321,6 +327,8 @@ export interface OracleServiceOptions {
   kybProvider?: VerificationProvider;
   /** Require a successful live KYB check before publishing a positive verdict. */
   requireKyb?: boolean;
+  /** Require a valid cryptographic payer signature before publishing a positive verdict (Issue #1228). */
+  requirePayerSignature?: boolean;
   rateLimitWindowMs?: number;
   rateLimitMaxRequests?: number;
   enableRateLimit?: boolean;

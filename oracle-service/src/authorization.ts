@@ -32,6 +32,8 @@ export type PayerAuthorizationFailureCode =
   | 'PAYER_FRAUD_SIGNALS'
   | 'PAYER_LOW_TRUST'
   | 'PAYER_KYB_UNVERIFIED'
+  | 'PAYER_SIGNATURE_INVALID'
+  | 'PAYER_SUBSTITUTION_REJECTED'
   // freshness — the oracle cannot stand behind the data it has.
   | 'PAYER_DATA_STALE'
   | 'PAYER_DEGRADED_LAST_KNOWN_GOOD'
@@ -101,6 +103,18 @@ export const PAYER_AUTHORIZATION_FAILURES: Readonly<
     httpStatus: 200,
     retryable: false,
     description: 'Configured KYB provider explicitly failed the payer',
+  },
+  PAYER_SIGNATURE_INVALID: {
+    category: 'policy',
+    httpStatus: 200,
+    retryable: false,
+    description: 'Payer signature verification failed against canonical invoice payload',
+  },
+  PAYER_SUBSTITUTION_REJECTED: {
+    category: 'policy',
+    httpStatus: 200,
+    retryable: false,
+    description: 'Payer substitution rejected across invoice lifecycle states',
   },
   PAYER_DATA_STALE: {
     category: 'freshness',
@@ -182,6 +196,17 @@ export function classifyPayerVerdict(
 
   if (response.degraded) {
     add('PAYER_DEGRADED_LAST_KNOWN_GOOD');
+  }
+
+  // Cryptographic signatures and lifecycle invariants outrank heuristic evaluations
+  for (const signal of response.fraudSignals) {
+    const s = signal.toLowerCase();
+    if (s.includes('substitution rejected')) {
+      add('PAYER_SUBSTITUTION_REJECTED');
+    }
+    if (s.includes('payer signature invalid') || s.includes('signature invalid')) {
+      add('PAYER_SIGNATURE_INVALID');
+    }
   }
 
   switch (response.composition?.outcome) {
