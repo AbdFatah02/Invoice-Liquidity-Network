@@ -906,6 +906,7 @@ jobs:
           npm run test:sdk-rc-smoke
           npm run test:react-peer-contract
           npm run test:contract-abi-compat
+          npm run test:e2e-guards
           npm run test:release-scripts
           npm run test:canary
           npm run canary:drill

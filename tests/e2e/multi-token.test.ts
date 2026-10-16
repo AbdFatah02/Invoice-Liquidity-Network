@@ -7,6 +7,12 @@ import * as StellarSdk from '@stellar/stellar-sdk';
 // Stellar node while still exercising the genuine SDK/CLI code paths.
 import { parseAmount, formatAmount } from '../../sdk/src/amounts';
 import { parseDisplayAmount, formatAmount as cliFormatAmount } from '../../cli/src/amounts';
+import {
+  assertPrerequisitesSatisfied,
+  evaluatePrerequisites,
+  isPlaceholderContractId,
+  requireHealthyRpc,
+} from './support/e2e-prerequisites';
 
 /**
  * The three tokens the smart-contract layer supports. Note the deliberately
@@ -18,17 +24,20 @@ const TOKENS = [
   {
     symbol: 'USDC',
     decimals: 6,
-    contractId: process.env.USDC_CONTRACT_ID ?? 'C_USDC_CONTRACT_ID_REPLACE_ME',
+    // No placeholder fallback (#1242): a token contract ID is either a real
+    // deployed contract supplied by the environment or it is absent, and the
+    // absence is reported explicitly by `optionalContractId`.
+    contractId: process.env.USDC_CONTRACT_ID,
   },
   {
     symbol: 'EURC',
     decimals: 6,
-    contractId: process.env.EURC_CONTRACT_ID ?? 'C_EURC_CONTRACT_ID_REPLACE_ME',
+    contractId: process.env.EURC_CONTRACT_ID,
   },
   {
     symbol: 'XLM',
     decimals: 7,
-    contractId: process.env.XLM_CONTRACT_ID ?? 'C_XLM_CONTRACT_ID_REPLACE_ME',
+    contractId: process.env.XLM_CONTRACT_ID,
   },
 ] as const;
 
@@ -38,20 +47,9 @@ const RPC_URL = 'http://localhost:8000/soroban/rpc';
 const FRIENDBOT_URL = 'http://localhost:8000/friendbot';
 const NETWORK_PASSPHRASE = StellarSdk.Networks.STANDALONE;
 
+// Only the live-node scenarios need the RPC connection; the dependency-free
+// decimal-precision suites above stay runnable everywhere.
 let server: StellarSdk.rpc.Server;
-let isNodeRunning = false;
-
-beforeAll(async () => {
-  server = new StellarSdk.rpc.Server(RPC_URL, { allowHttp: true });
-  try {
-    const health = await server.getHealth();
-    if (health.status === 'healthy') {
-      isNodeRunning = true;
-    }
-  } catch {
-    isNodeRunning = false;
-  }
-});
 
 async function fundAccount(publicKey: string): Promise<void> {
   const response = await fetch(`${FRIENDBOT_URL}?addr=${publicKey}`);
@@ -120,15 +118,48 @@ describe('Multi-token decimal precision (SDK / CLI / indexer contract)', () => {
   });
 });
 
+// Boundary check for #1242, deliberately outside the RPC-gated describe so it runs
+// on every invocation, including one without a local node.
+describe('Token contract ID configuration (#1242)', () => {
+  it.each(TOKENS)('$symbol uses only a real deployed token contract ID', ({ contractId }) => {
+    // A placeholder `C_*_REPLACE_ME` value would let the integration scenarios
+    // assert against nothing. Whatever the environment supplies must either be a
+    // real ID or be reported as absent.
+    expect(isPlaceholderContractId(contractId)).toBe(false);
+
+    if (contractId) {
+      // A deployed Soroban contract ID is 56 characters of base32.
+      expect(contractId).toMatch(/^C[A-Z2-7]{55}$/);
+    } else {
+      expect(contractId).toBeUndefined();
+    }
+  });
+});
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Integration: the full invoice lifecycle is run per-token against a live node.
-// Skipped automatically when no local Stellar node is reachable.
+// Fail-closed (#1244): an unreachable node fails the suite in beforeAll with the
+// recovery path instead of silently skipping these scenarios.
 // ─────────────────────────────────────────────────────────────────────────────
-describe('Multi-token invoice lifecycle (integration)', () => {
-  describe.each(TOKENS)('$symbol lifecycle', (token) => {
-    it('submit -> fund -> pay preserves the token amount and its decimals', async (ctx) => {
-      if (!isNodeRunning) return ctx.skip();
+// Scoped to the live-node scenarios: an unreachable RPC fails these tests with
+// the recovery path instead of skipping them (#1244). The dependency-free decimal
+// suites above are unaffected. Skipping requires the CI-forbidden
+// E2E_ALLOW_SKIP=1 escape hatch.
+const prerequisites = await evaluatePrerequisites(() => requireHealthyRpc(RPC_URL));
 
+describe.skipIf(prerequisites.skip)('Multi-token invoice lifecycle (integration)', () => {
+  it('has a live prerequisite: the Soroban RPC is reachable', () => {
+    assertPrerequisitesSatisfied(prerequisites);
+    expect(prerequisites.ok).toBe(true);
+  });
+
+  beforeAll(async () => {
+    if (!prerequisites.ok) return;
+    server = await requireHealthyRpc(RPC_URL);
+  });
+
+  describe.each(TOKENS)('$symbol lifecycle', (token) => {
+    it('submit -> fund -> pay preserves the token amount and its decimals', async () => {
       const borrower = StellarSdk.Keypair.random();
       const lp = StellarSdk.Keypair.random();
       const payer = StellarSdk.Keypair.random();
@@ -146,9 +177,7 @@ describe('Multi-token invoice lifecycle (integration)', () => {
       expect(lpInitial).toBeGreaterThanOrEqual(invoiceAmount);
     });
 
-    it('yields the expected discount in the token base units', async (ctx) => {
-      if (!isNodeRunning) return ctx.skip();
-
+    it('yields the expected discount in the token base units', async () => {
       const invoiceAmount = parseAmount('1000', { decimals: token.decimals });
       const discountRateBps = 300;
       const expectedYield = (invoiceAmount * BigInt(discountRateBps)) / 10_000n;

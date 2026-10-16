@@ -62,10 +62,18 @@ else
         echo "Reusing configured contract ID: $EXISTING_CONTRACT_ID"
         if [ "$DRY_RUN" = false ]; then printf '%s\n' "$EXISTING_CONTRACT_ID" > .docker-output/contract-id.txt; fi
     elif [ "$DRY_RUN" = true ]; then
-        echo "DRY RUN: no built WASM found; no dummy ID will be written."
+        echo "DRY RUN: no built WASM found; no placeholder ID will be written."
     else
-        echo "WARNING: Built WASM file not found. Writing a dummy Contract ID."
-        echo "dummy-contract-id-for-local-dev" > .docker-output/contract-id.txt
+        # Fail closed (#1242): a placeholder contract ID must never be published to
+        # downstream consumers (CI, seeder, frontend), because any test asserting
+        # against it proves nothing. Previously this wrote
+        # "dummy-contract-id-for-local-dev" and let dependent suites believe they
+        # were talking to a deployed contract.
+        echo "ERROR: no built WASM found, so no real contract can be deployed." >&2
+        echo "  recovery: build the contract (cargo build --target wasm32v1-none --release)," >&2
+        echo "            or re-run with EXISTING_CONTRACT_ID=<deployed contract id>." >&2
+        echo "            See docs/runbooks/e2e-prerequisites.md." >&2
+        exit 1
     fi
 fi
 

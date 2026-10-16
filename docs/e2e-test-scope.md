@@ -39,7 +39,8 @@ verification — using a local Stellar node and deterministic mocks.
 - Adding a new cross-package integration flow → `tests/e2e/`
 - Adding a test that requires contract + SDK + oracle + frontend interaction → `tests/e2e/`
 - Tests here should use `docker compose` or deterministic local providers
-- Disaster-recovery tests should exercise full backup, restore, and integrity-verification cycles
+- Disaster-recovery tests should exercise full backup, restore, and integrity-verification cycles, including replay from the backed-up cursor against the live chain
+- Integration suites in `tests/e2e/` must fail closed on a missing dependency via `tests/e2e/support/e2e-prerequisites.ts` — never `ctx.skip()` (see [E2E prerequisites runbook](./runbooks/e2e-prerequisites.md))
 
 ### `oracle-service/` — Verification & Fraud Detection Scope (#865)
 
@@ -71,7 +72,7 @@ verification — using a local Stellar node and deterministic mocks.
 
 | Workflow | Triggers | What it runs | Target |
 |---|---|---|---|
-| `e2e.yml` | `push`, `pull_request` (gated by `RUN_E2E` var) | `npm run test:e2e` (root `tests/e2e/`) | Cross-package integration |
+| `e2e.yml` | `push`, `pull_request` | provision a real contract (`scripts/provision-e2e-contract.mjs`) → `vitest run tests/e2e` with a JSON report → `scripts/check-e2e-coverage.mjs` (zero skips, uploads `e2e-coverage-evidence-*`) | Cross-package integration |
 | `e2e-nightly.yml` | Daily 00:00 UTC | Deploy contracts, seed accounts, run frontend Playwright | Full system nightly |
 | `sdk-e2e-local-node.yml` | PR + push to main | SDK integration tests against local Stellar | SDK ↔ contract |
 | `sdk-browser-tests.yml` | PR + push to main | SDK Playwright browser tests | SDK browser bundle |
@@ -119,12 +120,35 @@ and integrity-verification workflows remain functional and correct across the fu
 
 ### 1. `tests/e2e/lifecycle.test.ts` is a stub, not a real E2E test
 
-- Every test starts with `if (!isNodeRunning) return ctx.skip()`.
-- Contract IDs are placeholder values (`C_MOCK_CONTRACT_ID_REPLACE_ME`).
-- Most assertions test hardcoded constants (e.g., `expect(stateTransitions).toHaveLength(3)`).
-- **Action:** This file needs to be replaced with real contract interactions once
-  the local Stellar node setup is reliable in CI. Currently it serves as a
-  structural template.
+- ~~Every test starts with `if (!isNodeRunning) return ctx.skip()`.~~
+  **Resolved (#1244):** the RPC and contract-ID prerequisites are enforced by
+  `tests/e2e/support/e2e-prerequisites.ts`. An unreachable node or a missing
+  contract ID is now an actionable failure (with the recovery path) instead of a
+  silent skip. Skipping requires the explicit, CI-forbidden `E2E_ALLOW_SKIP=1`
+  escape hatch.
+- ~~Contract IDs are placeholder values (`C_MOCK_CONTRACT_ID_REPLACE_ME`).~~
+  **Resolved (#1241, #1242):** placeholders are rejected before any SDK call.
+  `scripts/provision-e2e-contract.mjs` deploys the compiled WASM (or verifies an
+  already-deployed `CONTRACT_ID` against the live chain) and CI exports the
+  resulting ID; `contract-deployer/deploy.sh` fails closed instead of writing
+  `dummy-contract-id-for-local-dev`.
+- **Still true:** several assertions remain structural rather than on-chain, and
+  the full lifecycle needs the deployed contract to exercise every transition.
+  `scripts/check-e2e-coverage.mjs` (#1243) now guarantees the suite *runs* on
+  every CI invocation and that zero tests are skipped.
+
+### 1a. Release CI could not detect the skips (#1243)
+
+- The old release step grepped vitest output for `"<n> skipped"` (a string the
+  reporter never emits), used `|| true`, and re-ran the suite. It could never
+  fail.
+- **Resolved:** `.github/workflows/e2e.yml` runs the suite once with
+  `--reporter=json`, then `node scripts/check-e2e-coverage.mjs --report=…` fails
+  on any skipped test, on a required suite that produced no tests, and on
+  `E2E_ALLOW_SKIP` being present. The JSON report is uploaded as the
+  `e2e-coverage-evidence-*` artifact.
+- Operator runbook (control, owner, triage, recovery):
+  [docs/runbooks/e2e-prerequisites.md](./runbooks/e2e-prerequisites.md).
 
 ### 2. No overlap between root E2E and per-package E2E
 
