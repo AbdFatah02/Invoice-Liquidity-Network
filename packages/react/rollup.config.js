@@ -29,7 +29,7 @@ const config = [
         declarationMap: false,
       }),
     ],
-    external: ['react', '@tanstack/react-query', '@invoice-liquidity/sdk'],
+    external: ['react', '@tanstack/react-query', '@iln/sdk'],
   },
   {
     input: 'dist/esm/index.d.ts',

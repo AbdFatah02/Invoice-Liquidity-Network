@@ -211,7 +211,7 @@ importers:
 
   examples/lp-automation:
     dependencies:
-      '@invoice-liquidity/sdk':
+      '@iln/sdk':
         specifier: file:../../sdk
         version: '@iln/sdk@file:sdk(react-native@0.86.0(@babel/core@7.29.7)(@types/react@19.2.17)(react@19.2.8))(react@19.2.8)'
       axios:
@@ -765,14 +765,13 @@ importers:
         version: 4.1.10(@opentelemetry/api@1.9.1)(@types/node@20.19.43)(@vitest/coverage-v8@4.1.11)(jsdom@29.1.1(@noble/hashes@1.8.0))(msw@2.15.0(@types/node@20.19.43)(typescript@5.9.3))(vite@8.0.16(@types/node@20.19.43)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.49.0)(tsx@4.23.1)(yaml@2.9.0))
 
   packages/react:
-    dependencies:
-      '@iln/sdk':
-        specifier: workspace:*
-        version: link:../../sdk
     devDependencies:
       '@iln/eslint-config':
         specifier: workspace:*
         version: link:../eslint-config
+      '@iln/sdk':
+        specifier: workspace:*
+        version: link:../../sdk
       '@rollup/plugin-commonjs':
         specifier: ^28.0.0
         version: 28.0.9(rollup@4.62.2)

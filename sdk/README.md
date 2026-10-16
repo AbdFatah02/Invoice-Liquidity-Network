@@ -51,7 +51,7 @@ npm install @iln/sdk
 ### Browser + Freighter
 
 ```ts
-import { ILNSdk, ILN_TESTNET, createFreighterSigner } from "@invoice-liquidity/sdk";
+import { ILNSdk, ILN_TESTNET, createFreighterSigner } from "@iln/sdk";
 
 const sdk = new ILNSdk({
   ...ILN_TESTNET,
@@ -82,7 +82,7 @@ console.log(invoice.status);
 ### Node.js
 
 ```ts
-import { ILNSdk, ILN_TESTNET, createKeypairSigner } from "@invoice-liquidity/sdk";
+import { ILNSdk, ILN_TESTNET, createKeypairSigner } from "@iln/sdk";
 
 const sdk = new ILNSdk({
   ...ILN_TESTNET,
@@ -107,7 +107,7 @@ Defaults:
 - `timeoutMs`: fallback default for all categories when operation-specific values are not supplied
 
 ```ts
-import { ILNSdk, ILN_TESTNET, TimeoutError } from "@invoice-liquidity/sdk";
+import { ILNSdk, ILN_TESTNET, TimeoutError } from "@iln/sdk";
 
 const sdk = new ILNSdk({
   ...ILN_TESTNET,
@@ -202,7 +202,7 @@ interface Invoice {
 The SDK provides a `NotificationsClient` to programmatically manage your invoice notification subscriptions.
 
 ```ts
-import { NotificationsClient, NotificationTrigger } from "@invoice-liquidity/sdk";
+import { NotificationsClient, NotificationTrigger } from "@iln/sdk";
 
 const notifications = new NotificationsClient("http://localhost:4001");
 

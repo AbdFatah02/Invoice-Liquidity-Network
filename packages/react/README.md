@@ -5,13 +5,13 @@ React hooks for Invoice Liquidity Network contract data fetching. Built on [TanS
 ## Installation
 
 ```bash
-npm install @iln/react @tanstack/react-query @invoice-liquidity/sdk
+npm install @iln/react @tanstack/react-query @iln/sdk
 
 Quick Start
 Wrap your app with ILNProvider and use the hooks:
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ILNProvider, useInvoice, useLPPortfolio } from '@iln/react';
-import { ILNClient, Networks } from '@invoice-liquidity/sdk';
+import { ILNClient, Networks } from '@iln/sdk';
 
 const queryClient = new QueryClient();
 const ilnClient = new ILNClient({
@@ -63,7 +63,7 @@ All hooks return { data, isLoading, error }.
 Requirements
 React 18+
 @tanstack/react-query 5.x (peer dependency)
-@invoice-liquidity/sdk (peer dependency)
+@iln/sdk (peer dependency)
 
 
 License

@@ -94,8 +94,8 @@ test('the provenance docs reference the real package name', () => {
     'docs/security-guide.md should reference @iln/sdk-next',
   );
   assert.ok(
-    !securityGuide.includes('npm audit signatures @invoice-liquidity/sdk'),
-    'docs/security-guide.md must not present the stale @invoice-liquidity/sdk verification block',
+    !securityGuide.includes('npm audit signatures @invoice-liquidity/sdk'), // sdk-name-check: allow-legacy
+    'docs/security-guide.md must not present the stale @invoice-liquidity/sdk verification block', // sdk-name-check: allow-legacy
   );
   assert.ok(
     releaseProcess.includes('@iln/sdk-next'),

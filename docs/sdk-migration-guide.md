@@ -9,6 +9,32 @@ the latest release and is accurate for that package.
 
 > **Compatibility:** See [SDK Compatibility Matrix](SDK_COMPATIBILITY_MATRIX.md) for supported dependency versions.
 
+### Package name: `@invoice-liquidity/sdk` → `@iln/sdk` <!-- sdk-name-check: allow-legacy -->
+
+Older docs and examples called this package `@invoice-liquidity/sdk`. <!-- sdk-name-check: allow-legacy -->
+The package in `sdk/` has always been named **`@iln/sdk`**, and that is the
+only name this repository releases. The exports are the same, so migrating
+means changing the specifier and nothing else:
+
+```diff
+- "@invoice-liquidity/sdk": "^0.1.0"      // sdk-name-check: allow-legacy
++ "@iln/sdk": "^0.1.0"
+```
+
+```diff
+- import { ILNSdk, ILN_TESTNET } from "@invoice-liquidity/sdk"; // sdk-name-check: allow-legacy
++ import { ILNSdk, ILN_TESTNET } from "@iln/sdk";
+```
+
+Also update any `pnpm --filter`, bundler `external`/`alias`, or
+`paths` entries that use the old name. A filter on the old name matches no
+package and pnpm still exits 0, so the command does nothing and reports
+success. `@iln/react` declares `@iln/sdk` (`^0.1.0`) as a **peer**
+dependency: install it alongside `@iln/react` in your app.
+
+CI enforces the canonical names with `scripts/check-sdk-package-names.mjs`.
+See [runbooks/sdk-package-names.md](runbooks/sdk-package-names.md).
+
 ---
 
 ## Overview of Breaking Changes

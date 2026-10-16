@@ -14,13 +14,7 @@
 
 import axios from 'axios';
 import { Command } from 'commander';
-import {
-  ILNSdk,
-  createKeypairSigner,
-  ILN_TESTNET,
-  withBackoff,
-  isTransientError,
-} from '@invoice-liquidity/sdk';
+import { ILNSdk, createKeypairSigner, ILN_TESTNET, withBackoff, isTransientError } from '@iln/sdk';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 

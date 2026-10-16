@@ -29,7 +29,7 @@ export const CONTRACT_ID = 'CCPASLHKRFBMVV5PZG3LKDGKFEDXZMB5U7DK42CVLUVWCMUCSRPV
 /** Contract view that returns the deployed version, for reader-side verification. */
 export const CONTRACT_VERSION_METHOD = 'get_version';
 
-/** Version of `@invoice-liquidity/sdk` these docs describe. */
+/** Version of `@iln/sdk` these docs describe. */
 export const SDK_VERSION = '0.1.0';
 
 /**

@@ -7,7 +7,7 @@ This document describes the process for releasing new versions of the Invoice Li
 ILN releases require coordinating changes across the following repositories and packages:
 
 1. **ILN-Smart-Contract** — Rust/Soroban contracts (deployed to Stellar)
-2. **Invoice-Liquidity-Network (SDK)** — `@invoice-liquidity/sdk` (`sdk/`) and `@iln/sdk-next` (`packages/sdk/`)
+2. **Invoice-Liquidity-Network (SDK)** — `@iln/sdk` (`sdk/`) and `@iln/sdk-next` (`packages/sdk/`)
 3. **Invoice-Liquidity-Network (CLI)** — `@invoice-liquidity/cli` (`cli/`)
 4. **Invoice-Liquidity-Network (Indexer)** — `@iln/indexer` (`packages/indexer/`)
 5. **Invoice-Liquidity-Network (Notifications)** — `@iln/notifications` (`notifications/`)
@@ -263,7 +263,7 @@ pnpm publish --provenance --access public
 ```bash
 # In ILN-Frontend repo
 # Update SDK dependency
-pnpm install @invoice-liquidity/sdk@latest
+pnpm install @iln/sdk@latest
 
 pnpm test
 pnpm build
@@ -327,7 +327,7 @@ git push origin --delete v1.2.0
 
 ```bash
 # If you need to revert to previous SDK version in frontend
-pnpm install @invoice-liquidity/sdk@<previous-version>
+pnpm install @iln/sdk@<previous-version>
 git add package.json package-lock.json
 git commit -m "chore: revert SDK to previous version"
 git push origin main

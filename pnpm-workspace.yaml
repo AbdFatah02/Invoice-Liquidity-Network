@@ -6,7 +6,7 @@
 # Workspace layout
 # ─────────────────────────────────────────────────────────────────────────────
 # Top-level service packages  (each has its own package.json)
-#   sdk/            TypeScript SDK                  (@invoice-liquidity/sdk)
+#   sdk/            TypeScript SDK                  (@iln/sdk)
 #   cli/            Command-line interface           (@invoice-liquidity/cli)
 #   indexer/        Production event indexer service (iln-indexer)
 #   notifications/  Webhook notification service     (@invoice-liquidity/notifications)
@@ -20,7 +20,7 @@
 #   packages/opentelemetry  OpenTelemetry instrumentation (@iln/opentelemetry)
 #   packages/react          React component library      (@iln/react)
 #   packages/scripts        Internal dev scripts/bin     (no public name)
-#   packages/sdk            SDK package variant          (@iln/sdk)
+#   packages/sdk            SDK package variant          (@iln/sdk-next)
 #   packages/shared         Shared utilities             (@iln/shared)
 #   packages/test-utils     Test helper utilities        (@iln/test-utils)
 #   packages/upgrade-tests  Upgrade compatibility tests  (@iln/upgrade-tests)

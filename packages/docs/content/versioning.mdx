@@ -32,7 +32,7 @@ was written against.
 - **Network** — Stellar testnet
 - **Contract** — `invoice_liquidity` v0.1.0
 - **Contract ID** — `CCPASLHKRFBMVV5PZG3LKDGKFEDXZMB5U7DK42CVLUVWCMUCSRPVBIMO`
-- **SDK** — `@invoice-liquidity/sdk` v0.1.0
+- **SDK** — `@iln/sdk` v0.1.0
 
 These are the same values rendered in the version banner. They are declared once in
 `docs/version-manifest.json` and mirrored into `packages/docs/lib/docs-version.ts`.
@@ -58,7 +58,7 @@ From the SDK, `checkCompatibility()` calls the same view and reports whether the
 deployed contract is within the range your SDK build supports:
 
 ```ts
-import { checkCompatibility } from '@invoice-liquidity/sdk';
+import { checkCompatibility } from '@iln/sdk';
 
 const result = await checkCompatibility((method) => client.invoke(method));
 

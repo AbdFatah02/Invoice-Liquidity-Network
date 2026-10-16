@@ -1,0 +1,81 @@
+name: SDK Package Names
+
+# Blocking guard for the canonical SDK package names (#1218):
+#   sdk/          → @iln/sdk
+#   packages/sdk/ → @iln/sdk-next
+#
+# Fails on any reference to a retired SDK name, mis-wired file:/link:
+# dependency, SDK declared as both dependency and peer, out-of-range peer, or a
+# package table that mislabels an SDK directory. The JSON report is uploaded
+# on every run (pass or fail) as proof the control ran — see
+# docs/runbooks/sdk-package-names.md.
+#
+# Dependency-free (plain Node), so it does not need a pnpm install.
+
+on:
+  pull_request:
+    branches:
+      - main
+      - dev
+  push:
+    branches:
+      - main
+      - dev
+  schedule:
+    # Weekly sweep so the control stays visibly active between PRs.
+    - cron: '23 5 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  sdk-package-names:
+    name: canonical SDK package names
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Unit tests for the guard
+        run: node --test scripts/__tests__/check-sdk-package-names.test.mjs
+
+      - name: Enforce canonical SDK package names
+        run: node scripts/check-sdk-package-names.mjs --json="$RUNNER_TEMP/sdk-package-names-report.json"
+
+      - name: Job summary
+        if: always()
+        run: |
+          REPORT="$RUNNER_TEMP/sdk-package-names-report.json"
+          [ -f "$REPORT" ] || exit 0
+          node -e '
+            const r = require(process.argv[1]);
+            const s = r.summary;
+            const lines = [
+              "### SDK package names",
+              "",
+              `| Result | Findings | Files | By rule |`,
+              `|---|---|---|---|`,
+              `| ${s.ok ? "✅ pass" : "❌ fail"} | ${s.total} | ${s.filesWithFindings} | ${JSON.stringify(s.byRule)} |`,
+            ];
+            console.log(lines.join("\n"));
+          ' "$REPORT" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sdk-package-names-report
+          path: ${{ runner.temp }}/sdk-package-names-report.json
+          if-no-files-found: ignore
+          retention-days: 30

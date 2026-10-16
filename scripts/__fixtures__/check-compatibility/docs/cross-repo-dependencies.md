@@ -13,7 +13,7 @@
 Each row represents a tested, compatible combination of component versions.
 
 <!-- COMPATIBILITY_MATRIX_START -->
-| Contract (`invoice_liquidity`) | SDK (`@invoice-liquidity/sdk`) | Frontend (`ILN-Frontend`) | Notes |
+| Contract (`invoice_liquidity`) | SDK (`@iln/sdk`) | Frontend (`ILN-Frontend`) | Notes |
 |---|---|---|---|
 | `0.1.0` | `0.1.0` | `0.1.0` | Initial release — all components aligned |
 | `0.1.1` | `0.1.0` | `0.1.0` | Contract patch, SDK and frontend unchanged |

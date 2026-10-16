@@ -316,3 +316,56 @@ groups:
             beat the anti-flap window — or two sources are failing at once.
             Identify the oscillating source in oracle_source_health_state and
             stabilise it; sustained churn degrades verdict consistency.
+
+  # ── Payer authorization failure taxonomy (#1232) ─────────────────────────
+  # Denials are partitioned by stable code, so these rules watch *why* payers
+  # are refused instead of parsing evidence strings. Runbook:
+  # docs/runbooks/payer-authorization-failures.md
+  - name: oracle-service-payer-authorization
+    interval: 30s
+    rules:
+      # The taxonomy gauge is set at process start. If it vanishes while the
+      # target is up, an instance is serving verdicts without the fail-closed
+      # control loaded (e.g. a rollback to a pre-#1232 image).
+      - alert: OraclePayerAuthorizationTaxonomyMissing
+        expr: |
+          up{job="oracle-service"} == 1
+          unless on (instance) oracle_payer_authorization_taxonomy_info == 1
+        for: 10m
+        labels:
+          severity: critical
+          team: ops
+          component: oracle-service
+        annotations:
+          summary: >-
+            {{ $labels.instance }} is not exporting the payer authorization
+            taxonomy.
+          description: >-
+            Verdicts from this instance are not being classified or forced
+            fail-closed. Check the deployed image includes #1232.
+          runbook_url: https://github.com/Invoice-Liquidity-Network/Invoice-Liquidity-Network/blob/main/docs/runbooks/payer-authorization-failures.md#oraclepayerauthorizationtaxonomymissing
+
+      # Dependency and internal denials are retryable outages, not payer
+      # decisions. A rising share means honest payers are being refused for
+      # reasons that have nothing to do with them.
+      - alert: OraclePayerAuthorizationDependencyDenials
+        expr: |
+          sum by (instance) (rate(oracle_payer_authorization_failures_total{primary="true",category=~"dependency|internal"}[10m]))
+            /
+          clamp_min(sum by (instance) (rate(oracle_payer_authorization_decisions_total[10m])), 1e-9)
+            > 0.1
+        for: 10m
+        labels:
+          severity: warning
+          team: ops
+          component: oracle-service
+        annotations:
+          summary: >-
+            {{ $value | humanizePercentage }} of payer checks on
+            {{ $labels.instance }} are denied for dependency or internal reasons.
+          description: >-
+            Break down oracle_payer_authorization_failures_total by code:
+            PAYER_KYB_UNAVAILABLE points at the KYB provider,
+            ORACLE_SOURCES_UNAVAILABLE at the indexer and reputation RPC,
+            ORACLE_INTERNAL_ERROR at the service itself.
+          runbook_url: https://github.com/Invoice-Liquidity-Network/Invoice-Liquidity-Network/blob/main/docs/runbooks/payer-authorization-failures.md#oraclepayerauthorizationdependencydenials

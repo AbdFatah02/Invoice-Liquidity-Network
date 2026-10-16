@@ -14,7 +14,8 @@ The following internal packages are defined in `pnpm-workspace.yaml` and `packag
 
 | Package Name | Scope | Location | Public Registry Status | Protection Status |
 |--------------|-------|----------|------------------------|-------------------|
-| `@iln/sdk` | @iln | packages/sdk | ✅ Published and owned by org | Protected |
+| `@iln/sdk` | @iln | sdk/ | ✅ Published and owned by org | Protected |
+| `@iln/sdk-next` | @iln | packages/sdk | 🔒 Reserved (unpublished) | Protected |
 | `@iln/shared` | @iln | packages/shared | 🔒 Reserved (unpublished) | Protected |
 | `@iln/indexer` | @iln | packages/indexer | 🔒 Reserved (unpublished) | Protected |
 | `@iln/opentelemetry` | @iln | packages/opentelemetry | 🔒 Reserved (unpublished) | Protected |
@@ -23,7 +24,7 @@ The following internal packages are defined in `pnpm-workspace.yaml` and `packag
 | `@iln/eslint-config` | @iln | packages/eslint-config | 🔒 Reserved (unpublished) | Protected |
 | `@iln/mock-backend` | @iln | packages/mock-backend | 🔒 Reserved (unpublished) | Protected |
 | `@iln/upgrade-tests` | @iln | packages/upgrade-tests | 🔒 Reserved (unpublished) | Protected |
-| `@invoice-liquidity/sdk` | @invoice-liquidity | sdk/ | ✅ Published and owned by org | Protected |
+| `@invoice-liquidity/sdk` | @invoice-liquidity | — (retired name of `sdk/`, now `@iln/sdk`) | ⚠️ Legacy — keep owned; deprecate on npm pointing at `@iln/sdk` | Protected | <!-- sdk-name-check: allow-legacy -->
 | `@invoice-liquidity/cli` | @invoice-liquidity | cli/ | ✅ Published and owned by org | Protected |
 | `@invoice-liquidity/docs` | @invoice-liquidity | docs/ | 🔒 Reserved (unpublished) | Protected |
 | `@invoice-liquidity/docs-next` | @invoice-liquidity | packages/docs | 🔒 Reserved (unpublished) | Protected |
