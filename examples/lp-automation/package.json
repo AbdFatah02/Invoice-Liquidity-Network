@@ -8,7 +8,7 @@
     "start:dry-run": "ts-node index.ts --dry-run"
   },
   "dependencies": {
-    "@invoice-liquidity/sdk": "file:../../sdk",
+    "@iln/sdk": "file:../../sdk",
     "axios": "^1.16.0",
     "commander": "^14.0.3"
   },

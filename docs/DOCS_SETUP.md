@@ -44,6 +44,14 @@ page renders correctly on the deployed site.
 
 ### Remaining content to port
 
+> **Package names when porting:** use `@iln/sdk` for the stable SDK (`sdk/`)
+> and `@iln/sdk-next` for `packages/sdk/`. `packages/docs/content/` is
+> scanned by `scripts/check-sdk-package-names.mjs`, so a retired name in a
+> ported page fails CI. The SDK pages below (migration guide, E2E, trust
+> model, sdk-next notes) were already migrated to the canonical names in
+> #1218 and can be ported as-is. See
+> [runbooks/sdk-package-names.md](runbooks/sdk-package-names.md).
+
 - [ ] Local development guide (`docs/local-development.md`)
 - [ ] CI/CD reference (`docs/ci-cd.md`)
 - [ ] Security guide (`docs/security-guide.md`)

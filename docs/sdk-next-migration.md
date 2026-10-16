@@ -224,12 +224,12 @@ the tag list at run time.
   *matrix's* window, not a runtime kill-switch. Nothing here revokes an
   already-installed SDK version.
 
-### Known naming inconsistency (pre-existing, not introduced by this issue)
+### Package naming
 
-Some existing code and docstrings refer to this package as
-`@invoice-liquidity/sdk` (`.github/workflows/sdk-e2e-local-node.yml`'s
-`pnpm --filter` target, `examples/lp-automation/package.json`'s dependency
-name, and several `@example` docstrings in `sdk/src/*.ts`), but
-`sdk/package.json`'s real name is `@iln/sdk`. The compat matrix added here
-uses the real name throughout; the stale references elsewhere are a
-pre-existing gap this issue didn't touch.
+`sdk/package.json`'s name is `@iln/sdk` and `packages/sdk/package.json`'s is
+`@iln/sdk-next`. The stale references that called the stable SDK by a retired
+name (the `sdk-e2e-local-node.yml` `pnpm --filter` target, the
+`examples/lp-automation` dependency, and `@example` docstrings in
+`sdk/src/*.ts`) were migrated in #1218, and
+`scripts/check-sdk-package-names.mjs` now fails CI if one reappears — see
+[runbooks/sdk-package-names.md](runbooks/sdk-package-names.md).

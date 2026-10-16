@@ -47,7 +47,7 @@ ILN supports two primary transaction signing models depending on the environment
 
 ### Via TypeScript SDK
 
-Use the `@invoice-liquidity/sdk` to query details of any invoice by ID:
+Use the `@iln/sdk` to query details of any invoice by ID:
 
 ```typescript
 import { ILNSdk, ILN_TESTNET } from "@iln/sdk";
@@ -224,7 +224,7 @@ For DeFi aggregators and [Liquidity Providers (LPs)](glossary.md#lp-liquidity-pr
 ### Querying & Yield Computations
 
 ```typescript
-import { ILNSdk, ILN_TESTNET } from "@invoice-liquidity/sdk";
+import { ILNSdk, ILN_TESTNET } from "@iln/sdk";
 
 const sdk = new ILNSdk(ILN_TESTNET);
 

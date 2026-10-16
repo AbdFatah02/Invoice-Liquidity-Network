@@ -32,7 +32,7 @@ export const ILN_TESTNET: NetworkConfig = {
  *
  * @example
  * ```ts
- * import { createKeypairSigner } from "@invoice-liquidity/sdk";
+ * import { createKeypairSigner } from "@iln/sdk";
  *
  * const signer = createKeypairSigner("S...");
  * const sdk = new ILNSdk({
@@ -69,7 +69,7 @@ export function createKeypairSigner(secretKey: string): TransactionSigner {
  *
  * @example
  * ```ts
- * import { createFreighterSigner } from "@invoice-liquidity/sdk";
+ * import { createFreighterSigner } from "@iln/sdk";
  *
  * const signer = createFreighterSigner();
  * const sdk = new ILNSdk({

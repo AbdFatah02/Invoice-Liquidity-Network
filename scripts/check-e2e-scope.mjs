@@ -30,7 +30,6 @@ const ROOT = resolve(__dirname, '..');
  *  cross-package dependency. */
 const CLIENT_PACKAGES = new Set([
   '@iln/sdk',
-  '@invoice-liquidity/sdk',
   '@iln/invoice-sdk',
   '@invoice-liquidity/cli',
   '@iln/cli',

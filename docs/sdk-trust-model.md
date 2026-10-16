@@ -1,6 +1,6 @@
 # SDK Trust Model
 
-This document explains the trust assumptions, key management guidelines, security assumptions, threat model, and best practices for `@invoice-liquidity/sdk`. It is intended for integrators who need to understand what the SDK checks, what it delegates, and what must be protected outside the SDK.
+This document explains the trust assumptions, key management guidelines, security assumptions, threat model, and best practices for `@iln/sdk`. It is intended for integrators who need to understand what the SDK checks, what it delegates, and what must be protected outside the SDK.
 
 For the protocol-wide attack surface, see [threat-model.md](./threat-model.md). For smart contract authorization logic, see [contracts/invoice-contract.md](./contracts/invoice-contract.md). For package provenance and supply-chain verification, see [security.md](./security.md).
 
@@ -8,7 +8,7 @@ For the protocol-wide attack surface, see [threat-model.md](./threat-model.md). 
 
 ## Trust Model Overview
 
-`@invoice-liquidity/sdk` is a thin client. It builds Stellar/Soroban transactions, validates address format, enforces signer identity, and delegates everything else — business-rule enforcement, cryptographic verification, and key custody — to the chain and to the signer implementation you provide.
+`@iln/sdk` is a thin client. It builds Stellar/Soroban transactions, validates address format, enforces signer identity, and delegates everything else — business-rule enforcement, cryptographic verification, and key custody — to the chain and to the signer implementation you provide.
 
 ### Trust chain
 
@@ -158,7 +158,7 @@ The `TransactionSigner` interface is the highest-trust boundary in the SDK. Choo
 Use `createFreighterSigner` for any integration that runs in a user's browser. Freighter stores private keys in the extension's secure enclave and never exposes them to page JavaScript.
 
 ```typescript
-import { createFreighterSigner, ILNSdk } from "@invoice-liquidity/sdk";
+import { createFreighterSigner, ILNSdk } from "@iln/sdk";
 
 const signer = createFreighterSigner();
 const sdk = new ILNSdk({
@@ -180,7 +180,7 @@ Rules for browser signing:
 Use `createKeypairSigner` only in isolated, server-side processes where the secret key is never exposed to the network or browser.
 
 ```typescript
-import { createKeypairSigner, ILNSdk } from "@invoice-liquidity/sdk";
+import { createKeypairSigner, ILNSdk } from "@iln/sdk";
 
 const signer = createKeypairSigner(process.env.SECRET_KEY);
 const sdk = new ILNSdk({
@@ -204,7 +204,7 @@ Rules for backend signing:
 For production deployments that require hardware-level key isolation, implement a custom `TransactionSigner` that delegates to an HSM, AWS KMS, or Hashicorp Vault. The private key never leaves the hardware boundary.
 
 ```typescript
-import type { SignTransactionOptions, TransactionSigner } from "@invoice-liquidity/sdk";
+import type { SignTransactionOptions, TransactionSigner } from "@iln/sdk";
 
 function createVaultSigner(publicKey: string): TransactionSigner {
   return {
@@ -412,7 +412,7 @@ The following threats are specific to SDK integration. For the full protocol thr
 
 ## Multi-Endpoint Soroban RPC Provider Failover Model (#1107)
 
-As validated in the system-level RPC failure drill (`docs/game-days/2026-09-rpc-node-outage-drill.md`), `@invoice-liquidity/sdk` supports fallback endpoint configuration (`rpcUrls: string[]`).
+As validated in the system-level RPC failure drill (`docs/game-days/2026-09-rpc-node-outage-drill.md`), `@iln/sdk` supports fallback endpoint configuration (`rpcUrls: string[]`).
 
 - **Primary Outage Failover**: When the primary RPC node becomes unreachable (HTTP 503 / network timeout >200ms), the SDK automatically attempts execution on secondary fallback endpoints.
 - **Failover Latency**: Verified at **420ms total failover time** under complete primary RPC unavailability.

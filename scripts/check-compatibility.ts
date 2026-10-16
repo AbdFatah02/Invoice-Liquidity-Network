@@ -336,7 +336,7 @@ function main(): void {
   const frontendVersion = readJsonVersion('frontend/package.json');
 
   console.log(`  Contract (invoice_liquidity): ${contractVersion}`);
-  console.log(`  SDK (@invoice-liquidity/sdk): ${sdkVersion}`);
+  console.log(`  SDK (@iln/sdk): ${sdkVersion}`);
   console.log(`  Frontend (ILN-Frontend):      ${frontendVersion}`);
   console.log();
 

@@ -167,7 +167,7 @@ export interface RpcServerLike {
  *
  * @example
  * ```ts
- * import { ILNSdk, ILN_TESTNET } from "@invoice-liquidity/sdk";
+ * import { ILNSdk, ILN_TESTNET } from "@iln/sdk";
  *
  * const sdk = new ILNSdk({
  *   ...ILN_TESTNET,
