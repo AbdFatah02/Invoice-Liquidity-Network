@@ -137,10 +137,6 @@ export function getProviderHealth(channel: ProviderChannel): HealthStatus {
   return entry.status;
 }
 
-export function isProviderHealthy(channel: ProviderChannel): boolean {
-  return getProviderHealth(channel) === 'healthy';
-}
-
 export function setProviderHealth(channel: ProviderChannel, status: HealthStatus): void {
   const entry = initHealth(channel);
   entry.status = status;
@@ -196,9 +192,7 @@ export interface HealthCheckResult {
   error?: string;
 }
 
-export async function checkProviderHealth(
-  channel: ProviderChannel
-): Promise<HealthCheckResult> {
+export async function checkProviderHealth(channel: ProviderChannel): Promise<HealthCheckResult> {
   const start = Date.now();
   try {
     // Synthetic probe — in tests this is mocked via fetch.
@@ -265,13 +259,6 @@ export function startHealthChecks(intervalMs: number = HEALTH_CHECK_INTERVAL_MS)
   }
 }
 
-export function stopHealthChecks(): void {
-  if (healthCheckTimer) {
-    clearInterval(healthCheckTimer);
-    healthCheckTimer = null;
-  }
-}
-
 // Drill helpers — simulate a primary-provider outage and verify fallback
 export function simulateProviderOutage(channel: ProviderChannel): void {
   setProviderHealth(channel, 'unhealthy');
@@ -285,7 +272,10 @@ export function getFallbackChannels(primary: ProviderChannel): ProviderChannel[]
   return FALLBACK_MAP[primary] ?? [];
 }
 
-export function shouldUseFallback(trigger: NotificationTrigger, primaryHealth: HealthStatus): boolean {
+export function shouldUseFallback(
+  trigger: NotificationTrigger,
+  primaryHealth: HealthStatus
+): boolean {
   // Always fallback if primary is unhealthy/degraded, regardless of priority.
   // Priority only matters for capacity shedding.
   return primaryHealth !== 'healthy';

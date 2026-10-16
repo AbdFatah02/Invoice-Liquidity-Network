@@ -4,6 +4,64 @@ This guide covers common issues and their solutions when working with the Invoic
 
 For programmatic error handling and remediation steps, see [ILN SDK Error Codes](errors.md).
 
+## Incident-derived quick checks
+
+These entries come from resolved support work and the recorded oracle game-day,
+rather than anticipated failure modes.
+
+### Oracle returns reduced confidence or blocks verification
+
+**History:** indexer downtime and oracle malfunction exercises (`#874` and the
+2026-08-30 oracle game-day postmortem).
+
+1. Query the indexer health and lag endpoints before restarting the oracle.
+2. Check oracle metrics for indexer request errors, stale responses, and KYB
+   `unknown` results.
+3. If indexer data is unavailable, confirm the response explicitly reports
+   reduced confidence. Required KYB remains fail-closed.
+4. If fraud flags spike across multiple signals, use the oracle containment
+   steps in `incident-response.md`; do not clear the cache until evidence is
+   captured.
+
+### Notification remains pending after provider recovery
+
+**History:** delivery retry and failure handling support (`#740`).
+
+1. Inspect `dispatch_attempts` for the recipient and confirm the row is still
+   `pending`, with `attempts` increasing and `last_error` changing.
+2. Verify the provider recovered and the worker flush loop is running.
+3. Do not delete the row. Restart the worker and confirm the same deduplication
+   key is delivered once.
+4. Query the delivery audit log and run `audit-cli.ts --verify-integrity` before
+   closing the incident.
+
+### Webhook URL is rejected although it responds in a browser
+
+**History:** webhook SSRF hardening (`#909`).
+
+The delivery service intentionally rejects loopback, private, link-local, and
+DNS-rebinding destinations. Resolve the hostname from the notification runtime,
+confirm every returned address is public, and use a public HTTPS endpoint. Do
+not bypass validation with an IP literal or redirect.
+
+### Indexer history differs after network instability
+
+**History:** ledger reorganization investigation (`#902`).
+
+Compare the stored cursor and event ledger with the RPC node's current ledger.
+If they diverge, stop ingestion, preserve the database, and replay from the last
+confirmed ledger according to the indexer runbook. Switching RPC endpoints
+without rewinding the cursor can preserve an inconsistent view.
+
+## Feeding support history back into this guide
+
+During incident closure, the incident owner searches this guide for the exact
+symptom. If it is missing or the successful diagnostic differs, the postmortem
+must include a documentation task that adds or updates the entry, cites the
+issue/postmortem, and records only commands that resolved the incident. The
+quarterly runbook review removes entries with no support evidence and verifies
+the remaining commands against the current CLI.
+
 
 ## Connection Issues
 

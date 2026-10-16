@@ -91,19 +91,6 @@ export const costUsdTotal = new Counter({
   registers: [registry],
 });
 
-export const sloErrorBudgetBurn = new Gauge({
-  name: 'iln_slo_error_budget_burn',
-  help: 'Current error-budget burn rate (ratio) by SLO name',
-  labelNames: ['slo'] as const,
-  registers: [registry],
-});
-
-export function observeCost(service: string, operation: string, usd: number): void {
-  try {
-    costUsdTotal.inc({ service, operation }, usd);
-  } catch {}
-}
-
 export function observeHttpRequest(
   method: string,
   route: string,

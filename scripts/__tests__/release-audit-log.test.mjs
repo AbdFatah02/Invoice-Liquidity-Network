@@ -8,6 +8,7 @@ import {
   serializeEntry,
   appendEntry,
   readEntries,
+  verifyEntries,
 } from '../release-audit-log.mjs';
 
 describe('buildAuditEntry', () => {
@@ -83,6 +84,18 @@ describe('serializeEntry / appendEntry / readEntries', () => {
     assert.equal(entries.length, 2);
     assert.equal(entries[0].action, 'x');
     assert.equal(entries[1].action, 'y');
+    assert.equal(verifyEntries(entries).valid, true);
+  });
+
+  it('detects modified release evidence', () => {
+    const entries = readEntries(logPath);
+    entries[0].actor = 'forged';
+    assert.deepEqual(verifyEntries(entries), {
+      valid: false,
+      entries: entries.length,
+      firstInvalidLine: 1,
+      headHash: '0'.repeat(64),
+    });
   });
 
   it('creates the log directory if it does not exist yet', () => {

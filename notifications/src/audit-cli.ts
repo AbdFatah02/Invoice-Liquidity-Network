@@ -12,7 +12,14 @@
  *   curl "http://localhost:4001/audit/deliveries?recipient=GABC&start=2026-01-01T00:00:00Z"
  */
 
-import { createDb, setDb, getDeliveryAuditLogs, countDeliveryAuditLogs, purgeExpiredDeliveryLogs } from './db';
+import {
+  createDb,
+  setDb,
+  getDeliveryAuditLogs,
+  countDeliveryAuditLogs,
+  purgeExpiredDeliveryLogs,
+  verifyComplianceAuditChain,
+} from './db';
 
 const args = process.argv.slice(2);
 
@@ -36,6 +43,12 @@ async function main() {
   } catch (e) {
     console.error('Failed to open DB at', dbPath, e);
     process.exit(1);
+  }
+
+  if (hasFlag('verify-integrity')) {
+    const result = verifyComplianceAuditChain();
+    console.log(JSON.stringify(result, null, 2));
+    process.exit(result.valid ? 0 : 2);
   }
 
   if (hasFlag('purge')) {
@@ -124,7 +137,9 @@ Examples:
   const records = getDeliveryAuditLogs(filter);
   const total = countDeliveryAuditLogs(filter);
 
-  console.log(`\n=== Delivery Audit Log — ${total} total matching records (showing ${records.length}) ===\n`);
+  console.log(
+    `\n=== Delivery Audit Log — ${total} total matching records (showing ${records.length}) ===\n`
+  );
   if (records.length === 0) {
     console.log('No records found for filter:', JSON.stringify(filter, null, 2));
     return;
@@ -145,7 +160,9 @@ Examples:
     }))
   );
 
-  console.log(`\nRetention: 30d for sent_notifications, 90d for webhook_delivery_logs & delivery_audit_log (docs/privacy.md)`);
+  console.log(
+    `\nRetention: 30d for sent_notifications, 90d for webhook_delivery_logs & delivery_audit_log (docs/privacy.md)`
+  );
 }
 
 main().catch((e) => {

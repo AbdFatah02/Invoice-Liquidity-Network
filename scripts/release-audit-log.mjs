@@ -26,6 +26,7 @@ import { appendFileSync, mkdirSync, readFileSync, existsSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = join(__dirname, '..');
@@ -33,6 +34,13 @@ const REPO_ROOT = join(__dirname, '..');
 export const DEFAULT_LOG_PATH = join(REPO_ROOT, 'release-audit', 'log.jsonl');
 
 const VALID_OUTCOMES = new Set(['success', 'failure', 'no-op']);
+const GENESIS_HASH = '0'.repeat(64);
+
+function hashEntry(previousHash, entry) {
+  return createHash('sha256')
+    .update(`${previousHash}:${JSON.stringify(entry)}`)
+    .digest('hex');
+}
 
 /**
  * Builds the audit entry object. Pure — no I/O, no clock ambiguity once a
@@ -66,7 +74,12 @@ export function serializeEntry(entry) {
 /** Appends a single entry to the JSONL log at `logPath`, creating it (and its directory) if needed. */
 export function appendEntry(logPath, entry) {
   mkdirSync(dirname(logPath), { recursive: true });
-  appendFileSync(logPath, serializeEntry(entry) + '\n', 'utf8');
+  const existing = readEntries(logPath);
+  const previousHash = existing.at(-1)?.hash ?? GENESIS_HASH;
+  const chained = { ...entry, previousHash };
+  chained.hash = hashEntry(previousHash, chained);
+  appendFileSync(logPath, serializeEntry(chained) + '\n', 'utf8');
+  return chained;
 }
 
 /** Reads and parses every entry currently in the log (used by tests and by report tooling). */
@@ -76,6 +89,24 @@ export function readEntries(logPath) {
     .split('\n')
     .filter((line) => line.trim().length > 0)
     .map((line) => JSON.parse(line));
+}
+
+export function verifyEntries(entries) {
+  let previousHash = GENESIS_HASH;
+  for (let index = 0; index < entries.length; index += 1) {
+    const { hash, ...content } = entries[index];
+    const expected = hashEntry(previousHash, content);
+    if (content.previousHash !== previousHash || hash !== expected) {
+      return {
+        valid: false,
+        entries: entries.length,
+        firstInvalidLine: index + 1,
+        headHash: previousHash,
+      };
+    }
+    previousHash = hash;
+  }
+  return { valid: true, entries: entries.length, headHash: previousHash };
 }
 
 function detectActor() {
@@ -100,6 +131,13 @@ function getArg(args, flag) {
 function main() {
   const args = process.argv.slice(2);
   const logPath = resolve(REPO_ROOT, getArg(args, '--log-path') ?? DEFAULT_LOG_PATH);
+
+  if (args.includes('--verify')) {
+    const result = verifyEntries(readEntries(logPath));
+    console.log(JSON.stringify(result, null, 2));
+    process.exitCode = result.valid ? 0 : 2;
+    return;
+  }
 
   const entry = buildAuditEntry({
     actor: getArg(args, '--actor') ?? detectActor(),

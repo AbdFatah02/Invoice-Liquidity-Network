@@ -144,6 +144,7 @@ NOTIFICATIONS_CONTRACT_ID=<CONTRACT_ID>
 | `NOTIFICATIONS_NETWORK_PASSPHRASE` | Stellar network passphrase | `Test SDF Network ; September 2015` |
 | `NOTIFICATIONS_POLL_INTERVAL_MS` | Polling interval (ms) | `30000` |
 | `NOTIFICATIONS_START_LEDGER` | Ledger to start from (`0` = auto) | `0` |
+| `NOTIFICATIONS_AUDIT_KEY` | HMAC key for compliance audit evidence; required in production | secret-manager value |
 | `RESEND_API_KEY` | Resend API key for email delivery | `re_...` |
 | `RESEND_FROM_EMAIL` | Sender address for notification emails | `no-reply@yourdomain.com` |
 | `DUE_WARNING_HOURS` | Hours before due date to send warning | `48` |
