@@ -10,6 +10,8 @@
     "test:e2e-guards": "node --test scripts/__tests__/check-e2e-coverage.test.mjs scripts/__tests__/provision-e2e-contract.test.mjs scripts/__tests__/provision-e2e-node.test.mjs scripts/__tests__/wait-for-stellar-rpc.test.mjs",
     "test:checklist": "node --test scripts/__tests__/mainnet-checklist-parser.test.js",
     "test:provenance": "node --test scripts/__tests__/release-provenance.test.js",
+    "test:bounty": "node --test scripts/__tests__/bug-bounty.test.mjs",
+    "test:reproducible-builds": "node scripts/verify-reproducible-builds.mjs",
     "test:compatibility": "vitest run scripts/__tests__/check-compatibility.test.ts",
     "test:audit": "node --test scripts/__tests__/dependency-audit.test.js",
     "test:load": "ts-node --esm scripts/load-test.ts",

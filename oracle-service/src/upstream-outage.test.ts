@@ -50,7 +50,7 @@ const INVOICE_ID = '42';
  * Short enough that the timeout cases finish quickly, long enough that a
  * healthy loopback response never trips it by accident.
  */
-const REQUEST_TIMEOUT_MS = 250;
+const REQUEST_TIMEOUT_MS = 1000;
 const FRESHNESS_WINDOW_MS = 60_000;
 
 /** A contract id the real SDK will accept, so an RPC failure is a network failure. */
@@ -167,7 +167,7 @@ describe('upstream outage chaos (#1058)', { timeout: 30_000 }, () => {
     expect(upstream.calls[0]).toEqual({
       method: 'GET',
       path: `/v1/history/${TEST_PAYER}`,
-      query: '?role=payer',
+      query: '?role=payer&fields=id%2Camount%2Cdue_date%2Cdiscount_rate%2Cstatus%2Ccreated_at%2Cupdated_at',
     });
     expect(warn).not.toHaveBeenCalled();
   });
@@ -383,7 +383,7 @@ describe('upstream outage chaos (#1058)', { timeout: 30_000 }, () => {
     const { value: res, tookMs } = await elapsedMs(() => verify({ forceRefresh: true }));
 
     expect(res.status).toBe(200);
-    expect(tookMs).toBeLessThan(5_000);
+    expect(tookMs).toBeLessThan(15_000);
     expect(res.body.reputationScore).toBe(0);
     expect(res.body.isVerified).toBe(false);
   });

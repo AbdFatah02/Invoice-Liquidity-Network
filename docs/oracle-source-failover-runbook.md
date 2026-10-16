@@ -113,6 +113,21 @@ flaps in your environment, raise the cooldown (fewer probes) and/or the streak
 is stable enough not to oscillate. The drill in §3 asserts a worst-case
 alternating primary produces at most one probe per cooldown and bounded churn.
 
+### 1.6 KYB Provider Fail-Closed Hardening (#1233)
+
+Whenever KYB verification is required (`requireKyb: true` or `NODE_ENV === 'production'`) or any KYB provider is configured:
+
+- **Strict fail-closed contract**: If the KYB provider fails due to network outage, upstream 5xx, timeout, unhandled exception, or missing provider configuration, the oracle strictly fails closed (`isVerified: false`, `composition.outcome: 'rejected-kyb-unavailable'`). The authorization decision surfaces primary code `PAYER_KYB_UNAVAILABLE`, classified under category `dependency` with `retryable: true`.
+- **Zero-lockout cache policy**: Outage/dependency rejections (`rejected-kyb-unavailable`) are never cached in Redis or memory. This ensures transient vendor outages do not lock legitimate payers out of verification once the upstream provider recovers.
+- **Observability and alerting**:
+  - The provider invocation is instrumented with `sourceTracker.noteAttempt('kyb', ok, latencyMs)`.
+  - Sustained outages demote the `kyb` source to `unavailable`, flipping `GET /health` and `GET /v1/health` status to `degraded`.
+  - Rejections emit `oracle_payer_authorizations_total{code="PAYER_KYB_UNAVAILABLE",decision="deny"}`.
+- **Incident triage and recovery**:
+  1. Inspect `/health` or `/v1/health` to confirm `sources.kyb` is `unavailable` or `degraded`.
+  2. Verify upstream KYB vendor status, API credentials, and network connectivity from oracle pods.
+  3. Once upstream recovery is confirmed, subsequent verification requests succeed immediately without service restart or cache purging.
+
 ---
 
 ## Part 2 — Delta-bound review (#1052)

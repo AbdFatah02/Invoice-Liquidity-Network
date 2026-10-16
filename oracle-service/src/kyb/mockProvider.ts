@@ -4,6 +4,8 @@ export interface MockKYBProviderOptions {
   name?: string;
   defaultVerified?: boolean;
   defaultJurisdiction?: string;
+  unavailable?: boolean;
+  unavailableError?: string;
   knownBusinesses?: Record<
     string,
     {
@@ -33,6 +35,8 @@ export class MockKYBProvider implements VerificationProvider {
   public readonly name: string;
   private readonly defaultVerified: boolean;
   private readonly defaultJurisdiction: string;
+  private unavailable: boolean;
+  private unavailableError?: string;
   private readonly knownBusinesses: Map<
     string,
     {
@@ -49,7 +53,20 @@ export class MockKYBProvider implements VerificationProvider {
     this.name = options.name ?? 'MockKYBProvider';
     this.defaultVerified = options.defaultVerified ?? true;
     this.defaultJurisdiction = options.defaultJurisdiction ?? 'US-DE';
+    this.unavailable = options.unavailable ?? false;
+    this.unavailableError = options.unavailableError;
     this.knownBusinesses = new Map(Object.entries(options.knownBusinesses ?? {}));
+  }
+
+  public setUnavailable(unavailable: boolean, errorMessage?: string): void {
+    this.unavailable = unavailable;
+    if (errorMessage !== undefined) {
+      this.unavailableError = errorMessage;
+    }
+  }
+
+  public isUnavailable(): boolean {
+    return this.unavailable;
   }
 
   public registerBusiness(
@@ -70,6 +87,10 @@ export class MockKYBProvider implements VerificationProvider {
     payerAddress: string,
     metadata?: Record<string, unknown>
   ): Promise<KYBVerificationResult> {
+    if (this.unavailable) {
+      throw new Error(this.unavailableError ?? `KYB provider (${this.name}) is unavailable`);
+    }
+
     const known = this.knownBusinesses.get(payerAddress);
     const verifiedAt = new Date().toISOString();
 

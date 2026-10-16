@@ -595,7 +595,6 @@ export async function createOracleApp(
     ));
   const reputationProvider =
     options.reputationProvider ?? (await createReputationProvider(resolved, sourceTracker));
-
   // Issues #1053 and #1055: a published verdict has to be attributable (an
   // attestation the caller can verify without trusting the transport) and it
   // has to leave a durable record behind. Both are constructed here rather than
@@ -631,6 +630,28 @@ export async function createOracleApp(
     1
   );
 
+  const rawKybProvider = kyb.kybProvider;
+  const kybProvider = rawKybProvider
+    ? {
+        name: rawKybProvider.name,
+        isMock: rawKybProvider.isMock,
+        verifyPayer: async (payerAddress: string, metadata?: Record<string, unknown>) => {
+          const start = Date.now();
+          try {
+            const result = await rawKybProvider.verifyPayer(payerAddress, metadata);
+            sourceTracker.noteAttempt('kyb', true, Date.now() - start);
+            return result;
+          } catch (error) {
+            sourceTracker.noteAttempt('kyb', false, Date.now() - start);
+            throw error;
+          }
+        },
+      }
+    : undefined;
+  if (kyb.requireKyb && !kybProvider) {
+    sourceTracker.noteAttempt('kyb', false, 0);
+  }
+
   const verifier = new OracleVerifier({
     cache: cache.cache,
     historyProvider,
@@ -638,7 +659,7 @@ export async function createOracleApp(
     // Absent until an external KYB provider is wired up; the composition
     // policy treats that as `unknown` and leaves confidence untouched.
     externalProvider: options.externalProvider,
-    kybProvider: kyb.kybProvider,
+    kybProvider,
     requireKyb: kyb.requireKyb,
     kybDecisionTtlMs: kyb.kybDecisionTtlMs,
     requirePayerSignature: options.requirePayerSignature ?? false,
@@ -1041,6 +1062,7 @@ export async function createOracleApp(
       degradedMode: degradedResponses > 0,
       degradedResponses,
       lastSuccessfulVerificationAt,
+      sources,
     };
   }
 

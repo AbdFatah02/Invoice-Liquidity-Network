@@ -108,7 +108,7 @@ describe('fraud window boundaries', () => {
   });
 
   it('flags identical amounts just inside MAX_FRAUD_WINDOW_MS', () => {
-    const fresh = Array.from({ length: 4 }, (_, i) =>
+    const fresh = Array.from({ length: 5 }, (_, i) =>
       makeHistoryEntry(NOW, {
         id: i,
         agoMs: MAX_FRAUD_WINDOW_MS - DAY_MS,
