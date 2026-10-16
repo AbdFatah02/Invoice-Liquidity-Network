@@ -852,6 +852,7 @@ jobs:
           npm run test:sdk-fixture-mocks
           npm run test:sdk-package-names
           npm run test:contract-abi-compat
+          npm run test:e2e-guards
           npm run test:release-scripts
           npm run test:canary
           npm run canary:drill

@@ -6,7 +6,17 @@
     "backend/**",
     "oracle-service/**"
   ],
-  "ignoreBinaries": ["playwright", "sqlite3", "sha256sum", "gsutil", "gitleaks", "less"],
+  "ignoreBinaries": [
+    "playwright",
+    "sqlite3",
+    "sha256sum",
+    "gsutil",
+    "gitleaks",
+    "less",
+    // Stellar CLI, invoked by scripts/provision-e2e-contract.mjs to deploy the
+    // real E2E contract (#1241). Installed via `cargo install stellar-cli` in CI.
+    "stellar"
+  ],
   "rules": {
     "optionalPeerDependencies": "off",
     "duplicates": "off"

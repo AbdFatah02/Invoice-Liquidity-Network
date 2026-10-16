@@ -1,4 +1,12 @@
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -18,10 +26,7 @@ function fixture() {
   const bin = join(root, 'bin');
   mkdirSync(bin);
   const calls = join(root, 'stellar-calls.log');
-  writeFileSync(
-    join(bin, 'stellar'),
-    `#!/bin/sh\nprintf '%s\\n' "$*" >> '${calls}'\n`
-  );
+  writeFileSync(join(bin, 'stellar'), `#!/bin/sh\nprintf '%s\\n' "$*" >> '${calls}'\n`);
   chmodSync(join(bin, 'stellar'), 0o755);
   return { root, bin, calls };
 }
@@ -52,6 +57,24 @@ test('retry with a recorded contract ID restores output without redeploying', ()
   const result = run(root, bin, { EXISTING_CONTRACT_ID: contractId });
 
   assert.equal(result.status, 0, result.stderr);
-  assert.equal(readFileSync(join(root, '.docker-output', 'contract-id.txt'), 'utf8').trim(), contractId);
+  assert.equal(
+    readFileSync(join(root, '.docker-output', 'contract-id.txt'), 'utf8').trim(),
+    contractId
+  );
   assert.doesNotMatch(readFileSync(calls, 'utf8'), /contract deploy/);
+});
+
+test('fails closed instead of writing a placeholder contract ID (#1242)', () => {
+  const root = mkdtempSync(join(tmpdir(), 'iln-deployer-'));
+  roots.push(root);
+  const bin = join(root, 'bin');
+  mkdirSync(bin);
+
+  const result = run(root, bin, {});
+
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /no built WASM found/);
+  assert.match(result.stderr, /cargo build --target wasm32v1-none --release/);
+  // The regression this guards: a placeholder must never reach downstream suites.
+  assert.equal(existsSync(join(root, '.docker-output', 'contract-id.txt')), false);
 });

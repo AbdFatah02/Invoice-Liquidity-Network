@@ -491,18 +491,18 @@ flowchart TD
 
 ### `e2e.yml`
 
-- Trigger: `push` and `pull_request`.
-- Guard: only runs when the repository variable `RUN_E2E` is set to `true` (disabled by default to save CI minutes on every push/PR).
+- Trigger: `push` and `pull_request` (path-filtered) plus `workflow_dispatch`.
 - Jobs:
-  - `e2e-tests`: starts a local Stellar node via `docker compose up -d`, waits 15 seconds for RPC, runs `npm install && npm run test:e2e` at the repo root.
-- Scope: **Lightweight, root-level E2E smoke tests only.** This workflow does NOT initialize git submodules, does NOT deploy contracts, does NOT install frontend dependencies or Playwright, and does NOT upload test artifacts. It is intended as a fast gate for basic integration health.
+  - `e2e-tests`: starts a local Stellar node via `docker compose -f tests/e2e/docker-compose.yml up -d stellar-quickstart`, waits for the Soroban RPC, installs the Stellar CLI, builds the contract WASM, provisions a **real deployed contract** with `node scripts/provision-e2e-contract.mjs` (#1241 — no placeholder contract IDs, #1242), runs `vitest run tests/e2e` with a JSON reporter, and enforces the coverage gate `node scripts/check-e2e-coverage.mjs --report=.artifacts/e2e-results.json --scan-sources` (#1243). The JSON report is uploaded as the `e2e-coverage-evidence-<run_id>` artifact.
+- Scope: cross-package integration gate for `tests/e2e/`. The suite is **fail-closed** (#1244): an unreachable RPC or a missing contract ID fails the run with the recovery path instead of skipping. `E2E_ALLOW_SKIP` is never set here, and the gate fails if it is.
 - Required secrets: none.
-- Expected runtime: short to medium. Usually 5 to 15 minutes.
+- Expected runtime: medium. Usually 10 to 20 minutes (Rust + Stellar CLI installation and the contract build dominate).
+- Evidence: artifact `e2e-coverage-evidence-<run_id>` contains `.artifacts/e2e-results.json` (per-test status) and `.artifacts/e2e-output.txt` (console output). A healthy run has `skipped: 0`.
 - Debugging tips:
+  - Run the runbook in [docs/runbooks/e2e-prerequisites.md](./runbooks/e2e-prerequisites.md) — it lists every failure message the control can emit with its owner and recovery path.
   - Confirm Docker and Docker Compose are available on the runner or local machine.
-  - If the job appears to hang, inspect the local node logs and the `sleep 15` wait window.
-  - Run `docker compose up -d` and `npm run test:e2e` locally to isolate test failures.
-  - If this workflow is skipped, check that `RUN_E2E` is set to `true` in repository variables.
+  - Reproduce locally: `docker compose -f tests/e2e/docker-compose.yml up -d stellar-quickstart`, `node scripts/provision-e2e-contract.mjs`, `pnpm test:e2e`.
+  - If the gate reports `missing-file` or `empty-file`, a required E2E file stopped running — check the `pnpm test:e2e` glob.
 
 ### `e2e-nightly.yml`
 

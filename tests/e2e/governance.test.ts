@@ -1,5 +1,11 @@
-import { describe, it, expect, beforeAll } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import * as StellarSdk from '@stellar/stellar-sdk';
+import {
+  assertPrerequisitesSatisfied,
+  evaluatePrerequisites,
+  requireContractId,
+  requireHealthyRpc,
+} from './support/e2e-prerequisites';
 
 /**
  * Governance lifecycle coverage for the cross-package E2E suite.
@@ -12,24 +18,12 @@ import * as StellarSdk from '@stellar/stellar-sdk';
  *
  * The runnable portion below exercises the governance *read model* contract with
  * the real vote-tallying / parameter-apply logic. The integration portion runs the
- * same flow against a live governance contract (skipped unless a node is up).
+ * same flow against a live governance contract: it fails with an actionable error
+ * when the node or the governance contract ID is unavailable — it never skips (#1244).
  */
 
 const RPC_URL = 'http://localhost:8000/soroban/rpc';
 const FRIENDBOT_URL = 'http://localhost:8000/friendbot';
-
-let server: StellarSdk.rpc.Server;
-let isNodeRunning = false;
-
-beforeAll(async () => {
-  server = new StellarSdk.rpc.Server(RPC_URL, { allowHttp: true });
-  try {
-    const health = await server.getHealth();
-    if (health.status === 'healthy') isNodeRunning = true;
-  } catch {
-    isNodeRunning = false;
-  }
-});
 
 async function fundAccount(publicKey: string): Promise<void> {
   const response = await fetch(`${FRIENDBOT_URL}?addr=${publicKey}`);
@@ -85,9 +79,7 @@ describe('Governance read-model contract (propose → vote → execute → read)
     const proposal = {
       id: 1,
       status: 'Executed' as const,
-      parameterChanges: [
-        { parameter: 'feeRateBps', currentValue: '30', newValue: '25' },
-      ],
+      parameterChanges: [{ parameter: 'feeRateBps', currentValue: '30', newValue: '25' }],
     };
 
     // This is exactly what an SDK governance read returns after execution.
@@ -112,12 +104,24 @@ describe('Governance read-model contract (propose → vote → execute → read)
 // ─────────────────────────────────────────────────────────────────────────────
 // Integration: full governance lifecycle against a live governance contract.
 // ─────────────────────────────────────────────────────────────────────────────
-describe('Governance lifecycle (integration)', () => {
-  const governanceContractId =
-    process.env.GOVERNANCE_CONTRACT_ID ?? 'C_GOVERNANCE_CONTRACT_ID_REPLACE_ME';
+// Fail-closed (#1244): a missing node or a placeholder governance contract ID is an
+// actionable failure, never a skip. Skipping requires the CI-forbidden
+// E2E_ALLOW_SKIP=1 escape hatch. The dependency-free read-model suite above is
+// unaffected.
+const prerequisites = await evaluatePrerequisites(async () => {
+  await requireHealthyRpc(RPC_URL);
+  requireContractId('GOVERNANCE_CONTRACT_ID');
+});
 
-  it('propose → vote (multi-account) → timelock → execute updates on-chain params', async (ctx) => {
-    if (!isNodeRunning) return ctx.skip();
+describe.skipIf(prerequisites.skip)('Governance lifecycle (integration)', () => {
+  it('has live prerequisites: reachable RPC and a real governance contract', () => {
+    assertPrerequisitesSatisfied(prerequisites);
+    expect(prerequisites.ok).toBe(true);
+  });
+
+  it('propose → vote (multi-account) → timelock → execute updates on-chain params', async () => {
+    await requireHealthyRpc(RPC_URL);
+    const governanceContractId = requireContractId('GOVERNANCE_CONTRACT_ID');
 
     const proposer = StellarSdk.Keypair.random();
     const voterA = StellarSdk.Keypair.random();
