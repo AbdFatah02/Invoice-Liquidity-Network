@@ -1,0 +1,48 @@
+name: Dependency audit escalation
+
+on:
+  schedule:
+    - cron: '17 5 * * *'
+  workflow_dispatch:
+  push:
+    branches: [dev, main]
+    paths:
+      [
+        'pnpm-lock.yaml',
+        'package.json',
+        '**/package.json',
+        'scripts/dependency-audit-escalation.js',
+      ]
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  audit-and-escalate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Produce machine-readable dependency audit
+        run: |
+          mkdir -p .security
+          pnpm audit --prod --json > .security/pnpm-audit-workspace.json || true
+      - name: Apply escalation policy
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SECURITY_PAGER_WEBHOOK: ${{ secrets.SECURITY_PAGER_WEBHOOK }}
+        run: node scripts/dependency-audit-escalation.js .security/pnpm-audit-workspace.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: dependency-audit-report
+          path: .security/pnpm-audit-workspace.json
+          retention-days: 30

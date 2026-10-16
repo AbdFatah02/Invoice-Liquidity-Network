@@ -16,17 +16,14 @@ export { renderDisputeEmail, buildDisputeSubject } from './dispute.template';
 
 export { renderDueWarningEmail, buildDueWarningSubject } from './due-warning.template';
 
-export { renderDigestEmail, buildDigestSubject } from './digest.template';
+export { renderDigestEmail } from './digest.template';
 
 export {
   emailShell,
   escapeHtml,
-  escapeAttribute,
   escapeDiscordMarkdown,
   escapeSmsText,
   escapeHeaderValue,
   isJsonSafeRoundTrip,
   formatAmount,
-  formatDate,
-  shortAddress,
 } from './helpers';

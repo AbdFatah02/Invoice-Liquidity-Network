@@ -106,11 +106,6 @@ export function setDb(db: Database.Database): void {
   _db = db;
 }
 
-/** Override the analytics singleton. Used in tests. */
-export function setAnalyticsDb(db: Database.Database | null): void {
-  _analyticsDb = db;
-}
-
 // ─── Schema migrations ────────────────────────────────────────────────────────
 
 function runMigrations(db: Database.Database): void {
@@ -442,8 +437,17 @@ export function getFreelancerStats(address: string): FreelancerStats {
  * Restricting to a known set prevents SQL injection via column names.
  */
 const ALLOWED_PROJECTION_FIELDS = new Set([
-  'id', 'freelancer', 'payer', 'amount', 'due_date', 'discount_rate',
-  'status', 'funder', 'funded_at', 'created_at', 'updated_at',
+  'id',
+  'freelancer',
+  'payer',
+  'amount',
+  'due_date',
+  'discount_rate',
+  'status',
+  'funder',
+  'funded_at',
+  'created_at',
+  'updated_at',
 ]);
 
 export function getInvoiceHistory(

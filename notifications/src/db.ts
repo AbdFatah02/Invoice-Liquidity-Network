@@ -1,5 +1,5 @@
 import Database from 'better-sqlite3';
-import { createHash } from 'crypto';
+import { createHash, createHmac, timingSafeEqual } from 'crypto';
 import { CONFIG } from './config';
 import type {
   ILNEventType,
@@ -27,6 +27,7 @@ export function createDb(path: string): SQLiteDatabase {
   db.pragma('journal_mode = WAL');
   db.pragma('foreign_keys = ON');
   runMigrations(db);
+  auditKey();
   return db;
 }
 
@@ -262,7 +263,131 @@ function runMigrations(db: SQLiteDatabase): void {
       anonymized_audit_rows INTEGER NOT NULL,
       completed_at INTEGER NOT NULL
     );
+
+    -- Append-only, signed hash chain for every compliance-relevant mutation.
+    CREATE TABLE IF NOT EXISTS compliance_audit_chain (
+      sequence      INTEGER PRIMARY KEY AUTOINCREMENT,
+      source        TEXT    NOT NULL,
+      action        TEXT    NOT NULL,
+      subject_id    TEXT    NOT NULL,
+      payload       TEXT    NOT NULL,
+      occurred_at   INTEGER NOT NULL,
+      previous_hash TEXT    NOT NULL,
+      entry_hash    TEXT    NOT NULL UNIQUE,
+      signature     TEXT    NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_compliance_audit_source
+      ON compliance_audit_chain(source, occurred_at);
+    CREATE TRIGGER IF NOT EXISTS compliance_audit_chain_no_update
+      BEFORE UPDATE ON compliance_audit_chain BEGIN
+        SELECT RAISE(ABORT, 'compliance audit chain is append-only');
+      END;
+    CREATE TRIGGER IF NOT EXISTS compliance_audit_chain_no_delete
+      BEFORE DELETE ON compliance_audit_chain BEGIN
+        SELECT RAISE(ABORT, 'compliance audit chain is append-only');
+      END;
   `);
+}
+
+const AUDIT_GENESIS = '0'.repeat(64);
+const DEV_AUDIT_KEY = 'dev-notifications-audit-key-do-not-use-in-production';
+
+function auditKey(): string {
+  if (process.env.NODE_ENV === 'production' && !process.env.NOTIFICATIONS_AUDIT_KEY) {
+    throw new Error('NOTIFICATIONS_AUDIT_KEY is required in production');
+  }
+  return process.env.NOTIFICATIONS_AUDIT_KEY ?? DEV_AUDIT_KEY;
+}
+
+function auditDigest(value: string): string {
+  return createHash('sha256').update(value).digest('hex');
+}
+
+function auditSignature(hash: string, key = auditKey()): string {
+  return createHmac('sha256', key).update(hash).digest('hex');
+}
+
+function appendComplianceAudit(
+  db: SQLiteDatabase,
+  source: 'notification-delivery' | 'retention' | 'erasure',
+  action: string,
+  subjectId: string,
+  payload: object,
+  occurredAt = Date.now()
+): void {
+  const previous = db
+    .prepare('SELECT entry_hash FROM compliance_audit_chain ORDER BY sequence DESC LIMIT 1')
+    .get() as { entry_hash: string } | undefined;
+  const previousHash = previous?.entry_hash ?? AUDIT_GENESIS;
+  const canonicalPayload = JSON.stringify(payload, Object.keys(payload).sort());
+  const content = JSON.stringify({
+    source,
+    action,
+    subjectId,
+    payload: canonicalPayload,
+    occurredAt,
+  });
+  const entryHash = auditDigest(`${previousHash}:${content}`);
+  db.prepare(
+    `INSERT INTO compliance_audit_chain
+    (source, action, subject_id, payload, occurred_at, previous_hash, entry_hash, signature)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(
+    source,
+    action,
+    subjectId,
+    canonicalPayload,
+    occurredAt,
+    previousHash,
+    entryHash,
+    auditSignature(entryHash)
+  );
+}
+
+interface ComplianceAuditVerification {
+  valid: boolean;
+  entries: number;
+  firstInvalidSequence?: number;
+  reason?: string;
+  headHash: string;
+}
+
+/** Verify linkage, content hashes, and HMAC authenticity for an auditor export. */
+export function verifyComplianceAuditChain(key = auditKey()): ComplianceAuditVerification {
+  const rows = getDb()
+    .prepare('SELECT * FROM compliance_audit_chain ORDER BY sequence')
+    .all() as any[];
+  let previousHash = AUDIT_GENESIS;
+  for (const row of rows) {
+    const content = JSON.stringify({
+      source: row.source,
+      action: row.action,
+      subjectId: row.subject_id,
+      payload: row.payload,
+      occurredAt: row.occurred_at,
+    });
+    const expectedHash = auditDigest(`${previousHash}:${content}`);
+    const expectedSignature = auditSignature(expectedHash, key);
+    const signatureValid =
+      row.signature.length === expectedSignature.length &&
+      timingSafeEqual(Buffer.from(row.signature), Buffer.from(expectedSignature));
+    if (row.previous_hash !== previousHash || row.entry_hash !== expectedHash || !signatureValid) {
+      return {
+        valid: false,
+        entries: rows.length,
+        firstInvalidSequence: row.sequence,
+        reason:
+          row.previous_hash !== previousHash
+            ? 'broken-link'
+            : row.entry_hash !== expectedHash
+            ? 'content-hash-mismatch'
+            : 'signature-mismatch',
+        headHash: previousHash,
+      };
+    }
+    previousHash = row.entry_hash;
+  }
+  return { valid: true, entries: rows.length, headHash: previousHash };
 }
 
 export function upsertInvoice(invoice: Omit<Invoice, 'created_at' | 'updated_at'>): void {
@@ -464,9 +589,11 @@ export function eraseNotificationDataForAddress(
     }
 
     const anonymizedAuditRows = db
-      .prepare(`UPDATE delivery_audit_log
+      .prepare(
+        `UPDATE delivery_audit_log
         SET recipient_address = '', destination = '', last_error = NULL
-        WHERE recipient_address = ?`)
+        WHERE recipient_address = ?`
+      )
       .run(address).changes;
 
     const result = {
@@ -476,12 +603,22 @@ export function eraseNotificationDataForAddress(
       webhookLogs,
       anonymizedAuditRows,
     };
-    db.prepare(`INSERT INTO erasure_request_audit
+    db.prepare(
+      `INSERT INTO erasure_request_audit
       (request_id, operator_id, subscriptions, dispatch_attempts, sent_notifications,
        webhook_logs, anonymized_audit_rows, completed_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
-      .run(requestId, operatorId, result.subscriptions, result.dispatchAttempts,
-        result.sentNotifications, result.webhookLogs, result.anonymizedAuditRows, Date.now());
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      requestId,
+      operatorId,
+      result.subscriptions,
+      result.dispatchAttempts,
+      result.sentNotifications,
+      result.webhookLogs,
+      result.anonymizedAuditRows,
+      Date.now()
+    );
+    appendComplianceAudit(db, 'erasure', 'completed', requestId, { operatorId, ...result });
     return result;
   })();
 }
@@ -492,10 +629,14 @@ function deleteSubscriptions(ids: number[]): boolean {
   return db.transaction(() => {
     for (const id of ids) {
       db.prepare('DELETE FROM webhook_delivery_logs WHERE subscription_id = ?').run(id);
-      db.prepare("DELETE FROM dispatch_attempts WHERE json_extract(subscription, '$.id') = ?").run(id);
+      db.prepare("DELETE FROM dispatch_attempts WHERE json_extract(subscription, '$.id') = ?").run(
+        id
+      );
     }
     const placeholders = ids.map(() => '?').join(', ');
-    const result = db.prepare(`DELETE FROM subscriptions WHERE id IN (${placeholders})`).run(...ids);
+    const result = db
+      .prepare(`DELETE FROM subscriptions WHERE id IN (${placeholders})`)
+      .run(...ids);
     return result.changes > 0;
   })();
 }
@@ -749,78 +890,91 @@ export function createDeliveryAuditLog(entry: {
   last_error?: string | null;
   attempt_timestamps: number[];
 }): DeliveryAuditRecord {
-  const now = Date.now();
-  const result = getDb()
-    .prepare(
-      `INSERT INTO delivery_audit_log
+  const db = getDb();
+  return db.transaction(() => {
+    const now = Date.now();
+    const result = db
+      .prepare(
+        `INSERT INTO delivery_audit_log
         (invoice_id, trigger, recipient_address, channel, destination, event_id, status, attempts, last_error, attempt_timestamps, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    )
-    .run(
-      entry.invoice_id,
-      entry.trigger,
-      entry.recipient_address,
-      entry.channel,
-      entry.destination,
-      entry.event_id ?? null,
-      entry.status,
-      entry.attempts,
-      entry.last_error ?? null,
-      JSON.stringify(entry.attempt_timestamps),
-      now,
-      now
-    );
+      )
+      .run(
+        entry.invoice_id,
+        entry.trigger,
+        entry.recipient_address,
+        entry.channel,
+        entry.destination,
+        entry.event_id ?? null,
+        entry.status,
+        entry.attempts,
+        entry.last_error ?? null,
+        JSON.stringify(entry.attempt_timestamps),
+        now,
+        now
+      );
 
-  return {
-    id: Number(result.lastInsertRowid),
-    invoice_id: entry.invoice_id,
-    trigger: entry.trigger,
-    recipient_address: entry.recipient_address,
-    channel: entry.channel,
-    destination: entry.destination,
-    event_id: entry.event_id ?? null,
-    status: entry.status,
-    attempts: entry.attempts,
-    last_error: entry.last_error ?? null,
-    attempt_timestamps: entry.attempt_timestamps,
-    created_at: now,
-    updated_at: now,
-  };
+    const record: DeliveryAuditRecord = {
+      id: Number(result.lastInsertRowid),
+      invoice_id: entry.invoice_id,
+      trigger: entry.trigger,
+      recipient_address: entry.recipient_address,
+      channel: entry.channel,
+      destination: entry.destination,
+      event_id: entry.event_id ?? null,
+      status: entry.status,
+      attempts: entry.attempts,
+      last_error: entry.last_error ?? null,
+      attempt_timestamps: entry.attempt_timestamps,
+      created_at: now,
+      updated_at: now,
+    };
+    appendComplianceAudit(db, 'notification-delivery', 'created', String(record.id), record);
+    return record;
+  })();
 }
 
 export function updateDeliveryAuditLog(
   id: number,
-  updates: Partial<Pick<DeliveryAuditRecord, 'status' | 'attempts' | 'last_error' | 'attempt_timestamps'>>
+  updates: Partial<
+    Pick<DeliveryAuditRecord, 'status' | 'attempts' | 'last_error' | 'attempt_timestamps'>
+  >
 ): void {
-  const fields: string[] = [];
-  const params: any[] = [];
+  const db = getDb();
+  db.transaction(() => {
+    const fields: string[] = [];
+    const params: any[] = [];
 
-  if (updates.status !== undefined) {
-    fields.push('status = ?');
-    params.push(updates.status);
-  }
-  if (updates.attempts !== undefined) {
-    fields.push('attempts = ?');
-    params.push(updates.attempts);
-  }
-  if (updates.last_error !== undefined) {
-    fields.push('last_error = ?');
-    params.push(updates.last_error);
-  }
-  if (updates.attempt_timestamps !== undefined) {
-    fields.push('attempt_timestamps = ?');
-    params.push(JSON.stringify(updates.attempt_timestamps));
-  }
+    if (updates.status !== undefined) {
+      fields.push('status = ?');
+      params.push(updates.status);
+    }
+    if (updates.attempts !== undefined) {
+      fields.push('attempts = ?');
+      params.push(updates.attempts);
+    }
+    if (updates.last_error !== undefined) {
+      fields.push('last_error = ?');
+      params.push(updates.last_error);
+    }
+    if (updates.attempt_timestamps !== undefined) {
+      fields.push('attempt_timestamps = ?');
+      params.push(JSON.stringify(updates.attempt_timestamps));
+    }
 
-  if (fields.length === 0) return;
+    if (fields.length === 0) return;
 
-  fields.push('updated_at = ?');
-  params.push(Date.now());
-  params.push(id);
+    fields.push('updated_at = ?');
+    params.push(Date.now());
+    params.push(id);
 
-  getDb()
-    .prepare(`UPDATE delivery_audit_log SET ${fields.join(', ')} WHERE id = ?`)
-    .run(...params);
+    const result = db
+      .prepare(`UPDATE delivery_audit_log SET ${fields.join(', ')} WHERE id = ?`)
+      .run(...params);
+    if (result.changes > 0) {
+      appendComplianceAudit(db, 'notification-delivery', 'updated', String(id), updates);
+    }
+  })();
 }
 
 export function getDeliveryAuditLogs(filter: DeliveryAuditFilter = {}): DeliveryAuditRecord[] {
@@ -1092,9 +1246,9 @@ export function enqueueDispatchAttempt(
     });
 
   if (result.changes === 0) {
-    const existing = db
-      .prepare('SELECT status FROM dispatch_attempts WHERE id = ?')
-      .get(id) as { status: DispatchAttemptStatus } | undefined;
+    const existing = db.prepare('SELECT status FROM dispatch_attempts WHERE id = ?').get(id) as
+      | { status: DispatchAttemptStatus }
+      | undefined;
     const status = existing?.status ?? 'pending';
     return {
       id,
@@ -1105,7 +1259,13 @@ export function enqueueDispatchAttempt(
     };
   }
 
-  return { id, dedup_key: dedupKey, status: 'pending', deduplicated: false, alreadyDelivered: false };
+  return {
+    id,
+    dedup_key: dedupKey,
+    status: 'pending',
+    deduplicated: false,
+    alreadyDelivered: false,
+  };
 }
 
 function rowToDispatchAttempt(row: {
@@ -1275,8 +1435,10 @@ export function purgeExpiredDeliveryLogs(
       {
         name: 'dispatch_attempts',
         cutoff: longCutoff,
-        countSql: "SELECT COUNT(*) AS count FROM dispatch_attempts WHERE status IN ('delivered', 'failed') AND created_at < ?",
-        deleteSql: "DELETE FROM dispatch_attempts WHERE status IN ('delivered', 'failed') AND created_at < ?",
+        countSql:
+          "SELECT COUNT(*) AS count FROM dispatch_attempts WHERE status IN ('delivered', 'failed') AND created_at < ?",
+        deleteSql:
+          "DELETE FROM dispatch_attempts WHERE status IN ('delivered', 'failed') AND created_at < ?",
       },
       {
         name: 'redeemed_unsubscribe_tokens',
@@ -1290,8 +1452,7 @@ export function purgeExpiredDeliveryLogs(
       count: (db.prepare(category.countSql).get(category.cutoff) as { count: number }).count,
     }));
     const totalEligible = eligible.reduce((sum, category) => sum + category.count, 0);
-    const alertThresholdExceeded =
-      options.maxRows !== undefined && totalEligible > options.maxRows;
+    const alertThresholdExceeded = options.maxRows !== undefined && totalEligible > options.maxRows;
     const shouldDelete = !dryRun && !alertThresholdExceeded;
     const deleted: Record<string, number> = {};
 
@@ -1310,6 +1471,19 @@ export function purgeExpiredDeliveryLogs(
         category.count,
         deletedRows,
         alertThresholdExceeded ? 'alerted' : shouldDelete ? 'deleted' : 'dry-run',
+        nowMs
+      );
+      appendComplianceAudit(
+        db,
+        'retention',
+        'sweep',
+        category.name,
+        {
+          cutoff: category.cutoff,
+          eligibleRows: category.count,
+          deletedRows,
+          mode: alertThresholdExceeded ? 'alerted' : shouldDelete ? 'deleted' : 'dry-run',
+        },
         nowMs
       );
     }

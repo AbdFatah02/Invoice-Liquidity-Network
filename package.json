@@ -42,6 +42,7 @@
     "security:licenses": "node scripts/dependency-audit.js licenses",
     "security:scan": "node scripts/dependency-audit.js scan",
     "security:report": "node scripts/dependency-audit.js report",
+    "security:escalate": "node scripts/dependency-audit-escalation.js .security/pnpm-audit-workspace.json",
     "syncpack:check": "syncpack list-mismatches",
     "validate:packages": "node scripts/validate-packages.mjs",
     "check-monorepo-map": "node scripts/check-monorepo-map.mjs",

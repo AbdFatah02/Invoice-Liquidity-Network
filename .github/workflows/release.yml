@@ -34,6 +34,31 @@ permissions:
 concurrency: ${{ github.workflow }}-${{ github.ref }}
 
 jobs:
+  dependency-gate:
+    name: Dependency severity release gate
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Audit and enforce escalation policy
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SECURITY_PAGER_WEBHOOK: ${{ secrets.SECURITY_PAGER_WEBHOOK }}
+        run: |
+          mkdir -p .security
+          pnpm audit --prod --json > .security/pnpm-audit-workspace.json || true
+          node scripts/dependency-audit-escalation.js .security/pnpm-audit-workspace.json
+
   # ----------------------------------------------------------------------------
   # Build and pack the SDK + CLI release artifacts (issue #1077). This also fixes
   # the pre-existing gap where the attestation step referenced sdk/dist/** and
@@ -41,6 +66,7 @@ jobs:
   # ----------------------------------------------------------------------------
   pack:
     name: Build and pack release artifacts
+    needs: dependency-gate
     runs-on: ubuntu-latest
     outputs:
       hashes: ${{ steps.subjects.outputs.hashes }}
@@ -109,7 +135,7 @@ jobs:
       contents: write # release uploads
     uses: slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@v2.1.0
     with:
-      base64-subjects: "${{ needs.pack.outputs.hashes }}"
+      base64-subjects: '${{ needs.pack.outputs.hashes }}'
       provenance-name: release.intoto.jsonl
 
   # ----------------------------------------------------------------------------

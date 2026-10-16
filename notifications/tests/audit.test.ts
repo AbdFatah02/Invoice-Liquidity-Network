@@ -15,6 +15,8 @@ import {
   createSubscription,
   deleteSubscriptionById,
   createDeliveryAuditLog,
+  updateDeliveryAuditLog,
+  verifyComplianceAuditChain,
 } from '../src/db';
 
 // Hoisted mocks for delivery providers
@@ -76,7 +78,9 @@ describe('Delivery audit log — durable, queryable, retention-enforced', () => 
   });
 
   it('creates an audit record on successful email delivery with attempt timestamps and channel', async () => {
-    const { sendEmail, clearDeadLetterQueue, resetCircuitBreakers } = await import('../src/delivery');
+    const { sendEmail, clearDeadLetterQueue, resetCircuitBreakers } = await import(
+      '../src/delivery'
+    );
     clearDeadLetterQueue();
     resetCircuitBreakers();
 
@@ -126,7 +130,9 @@ describe('Delivery audit log — durable, queryable, retention-enforced', () => 
   });
 
   it('creates an audit record on permanent email failure with final status failed', async () => {
-    const { sendEmail, clearDeadLetterQueue, resetCircuitBreakers } = await import('../src/delivery');
+    const { sendEmail, clearDeadLetterQueue, resetCircuitBreakers } = await import(
+      '../src/delivery'
+    );
     clearDeadLetterQueue();
     resetCircuitBreakers();
     emailSend.mockRejectedValue(new Error('provider down'));
@@ -174,7 +180,9 @@ describe('Delivery audit log — durable, queryable, retention-enforced', () => 
   });
 
   it('creates audit records for webhook success and permanent failure', async () => {
-    const { sendWebhook, clearDeadLetterQueue, resetCircuitBreakers } = await import('../src/delivery');
+    const { sendWebhook, clearDeadLetterQueue, resetCircuitBreakers } = await import(
+      '../src/delivery'
+    );
     clearDeadLetterQueue();
     resetCircuitBreakers();
 
@@ -188,27 +196,30 @@ describe('Delivery audit log — durable, queryable, retention-enforced', () => 
       triggers: ['invoice_funded'],
     });
 
-    await sendWebhook(sub as any, {
-      trigger: 'invoice_funded',
-      invoice: {
-        id: 3,
-        freelancer: 'GWEBHOOK',
-        payer: 'GPAYER',
-        amount: '3000',
-        due_date: Math.floor(Date.now() / 1000) + 86400,
-        discount_rate: 100,
-        status: 'Funded',
-        funder: null,
-        funded_at: null,
-        created_at: Date.now(),
-        updated_at: Date.now(),
-      },
-      recipientAddress: 'GWEBHOOK',
-      subject: 'funded',
-      message: 'msg',
-      actor: 'freelancer',
-      eventId: 'evt-3',
-    } as any);
+    await sendWebhook(
+      sub as any,
+      {
+        trigger: 'invoice_funded',
+        invoice: {
+          id: 3,
+          freelancer: 'GWEBHOOK',
+          payer: 'GPAYER',
+          amount: '3000',
+          due_date: Math.floor(Date.now() / 1000) + 86400,
+          discount_rate: 100,
+          status: 'Funded',
+          funder: null,
+          funded_at: null,
+          created_at: Date.now(),
+          updated_at: Date.now(),
+        },
+        recipientAddress: 'GWEBHOOK',
+        subject: 'funded',
+        message: 'msg',
+        actor: 'freelancer',
+        eventId: 'evt-3',
+      } as any
+    );
     await vi.runAllTimersAsync();
 
     let logs = getDeliveryAuditLogs({ recipient: 'GWEBHOOK' });
@@ -224,27 +235,30 @@ describe('Delivery audit log — durable, queryable, retention-enforced', () => 
       triggers: ['invoice_paid'],
     });
 
-    const p = sendWebhook(sub2 as any, {
-      trigger: 'invoice_paid',
-      invoice: {
-        id: 4,
-        freelancer: 'GWEBHOOK2',
-        payer: 'GPAYER',
-        amount: '4000',
-        due_date: Math.floor(Date.now() / 1000) + 86400,
-        discount_rate: 100,
-        status: 'Paid',
-        funder: null,
-        funded_at: null,
-        created_at: Date.now(),
-        updated_at: Date.now(),
-      },
-      recipientAddress: 'GWEBHOOK2',
-      subject: 'paid',
-      message: 'msg',
-      actor: 'freelancer',
-      eventId: 'evt-4',
-    } as any);
+    const p = sendWebhook(
+      sub2 as any,
+      {
+        trigger: 'invoice_paid',
+        invoice: {
+          id: 4,
+          freelancer: 'GWEBHOOK2',
+          payer: 'GPAYER',
+          amount: '4000',
+          due_date: Math.floor(Date.now() / 1000) + 86400,
+          discount_rate: 100,
+          status: 'Paid',
+          funder: null,
+          funded_at: null,
+          created_at: Date.now(),
+          updated_at: Date.now(),
+        },
+        recipientAddress: 'GWEBHOOK2',
+        subject: 'paid',
+        message: 'msg',
+        actor: 'freelancer',
+        eventId: 'evt-4',
+      } as any
+    );
     await vi.runAllTimersAsync();
     await p;
 
@@ -256,7 +270,9 @@ describe('Delivery audit log — durable, queryable, retention-enforced', () => 
   });
 
   it('creates audit record even when webhook is rejected by SSRF (private IP)', async () => {
-    const { sendWebhook, clearDeadLetterQueue, resetCircuitBreakers } = await import('../src/delivery');
+    const { sendWebhook, clearDeadLetterQueue, resetCircuitBreakers } = await import(
+      '../src/delivery'
+    );
     clearDeadLetterQueue();
     resetCircuitBreakers();
     const fetchMock = vi.fn();
@@ -269,27 +285,30 @@ describe('Delivery audit log — durable, queryable, retention-enforced', () => 
       triggers: ['invoice_funded'],
     });
 
-    await sendWebhook(sub as any, {
-      trigger: 'invoice_funded' as any,
-      invoice: {
-        id: 5,
-        freelancer: 'GSSRF',
-        payer: 'GPAYER',
-        amount: '5000',
-        due_date: Math.floor(Date.now() / 1000) + 86400,
-        discount_rate: 100,
-        status: 'Funded',
-        funder: null,
-        funded_at: null,
-        created_at: Date.now(),
-        updated_at: Date.now(),
-      },
-      recipientAddress: 'GSSRF',
-      subject: 'funded',
-      message: 'msg',
-      actor: 'freelancer',
-      eventId: 'evt-5',
-    } as any);
+    await sendWebhook(
+      sub as any,
+      {
+        trigger: 'invoice_funded' as any,
+        invoice: {
+          id: 5,
+          freelancer: 'GSSRF',
+          payer: 'GPAYER',
+          amount: '5000',
+          due_date: Math.floor(Date.now() / 1000) + 86400,
+          discount_rate: 100,
+          status: 'Funded',
+          funder: null,
+          funded_at: null,
+          created_at: Date.now(),
+          updated_at: Date.now(),
+        },
+        recipientAddress: 'GSSRF',
+        subject: 'funded',
+        message: 'msg',
+        actor: 'freelancer',
+        eventId: 'evt-5',
+      } as any
+    );
     await vi.runAllTimersAsync();
 
     const logs = getDeliveryAuditLogs({ recipient: 'GSSRF' });
@@ -316,7 +335,9 @@ describe('Delivery audit log — durable, queryable, retention-enforced', () => 
     });
     // Manually adjust created_at to simulate old record
     const db = (await import('../src/db')).getDb();
-    db.prepare(`UPDATE delivery_audit_log SET created_at = ?, updated_at = ? WHERE recipient_address = 'GALICE'`).run(now - 2 * 24 * 60 * 60 * 1000, now - 2 * 24 * 60 * 60 * 1000);
+    db.prepare(
+      `UPDATE delivery_audit_log SET created_at = ?, updated_at = ? WHERE recipient_address = 'GALICE'`
+    ).run(now - 2 * 24 * 60 * 60 * 1000, now - 2 * 24 * 60 * 60 * 1000);
 
     createDeliveryAuditLog({
       invoice_id: 11,
@@ -354,7 +375,9 @@ describe('Delivery audit log — durable, queryable, retention-enforced', () => 
     // By channel and status
     res = await request(app).get('/audit/deliveries?channel=sms&status=failed');
     expect(res.status).toBe(200);
-    expect(res.body.records.every((r: any) => r.channel === 'sms' && r.status === 'failed')).toBe(true);
+    expect(res.body.records.every((r: any) => r.channel === 'sms' && r.status === 'failed')).toBe(
+      true
+    );
   });
 
   it('retention policy purges audit logs after 90 days and sent_notifications after 30 days', async () => {
@@ -388,12 +411,24 @@ describe('Delivery audit log — durable, queryable, retention-enforced', () => 
     });
     const db = (await import('../src/db')).getDb();
     const oldTime = now - 91 * 24 * 60 * 60 * 1000;
-    db.prepare('UPDATE delivery_audit_log SET created_at = ?, updated_at = ? WHERE id = ?').run(oldTime, oldTime, oldAudit.id);
+    db.prepare('UPDATE delivery_audit_log SET created_at = ?, updated_at = ? WHERE id = ?').run(
+      oldTime,
+      oldTime,
+      oldAudit.id
+    );
 
     // Old sent_notifications (31 days old — should be purged per privacy.md 30d)
     db.prepare(
       `INSERT INTO sent_notifications (invoice_id, trigger, recipient_address, channel, destination, event_id, sent_at) VALUES (?, ?, ?, ?, ?, ?, ?)`
-    ).run(99, 'invoice_funded', 'GOLD', 'email', 'old@example.com', 'evt-old-sent', now - 31 * 24 * 60 * 60 * 1000);
+    ).run(
+      99,
+      'invoice_funded',
+      'GOLD',
+      'email',
+      'old@example.com',
+      'evt-old-sent',
+      now - 31 * 24 * 60 * 60 * 1000
+    );
 
     // Old webhook logs (91 days old — should be purged per 90d)
     const webhookSub = createSubscription({
@@ -404,7 +439,19 @@ describe('Delivery audit log — durable, queryable, retention-enforced', () => 
     });
     db.prepare(
       `INSERT INTO webhook_delivery_logs (subscription_id, event_id, trigger, invoice_id, recipient_address, status, attempts, response_status, error, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    ).run(webhookSub.id, 'evt-old-whook', 'invoice_funded', 21, 'GOLD', 'failed', 3, 500, 'timeout', oldTime, oldTime);
+    ).run(
+      webhookSub.id,
+      'evt-old-whook',
+      'invoice_funded',
+      21,
+      'GOLD',
+      'failed',
+      3,
+      500,
+      'timeout',
+      oldTime,
+      oldTime
+    );
 
     expect(countDeliveryAuditLogs()).toBe(2);
 
@@ -431,7 +478,11 @@ describe('Delivery audit log — durable, queryable, retention-enforced', () => 
       last_error: 'error',
       attempt_timestamps: [oldTime],
     });
-    db.prepare('UPDATE delivery_audit_log SET created_at = ?, updated_at = ? WHERE id = ?').run(oldTime, oldTime, anotherOld.id);
+    db.prepare('UPDATE delivery_audit_log SET created_at = ?, updated_at = ? WHERE id = ?').run(
+      oldTime,
+      oldTime,
+      anotherOld.id
+    );
 
     const res = await request(app).post('/audit/purge').send({});
     expect(res.status).toBe(200);
@@ -463,7 +514,9 @@ describe('Delivery audit log — durable, queryable, retention-enforced', () => 
     expect(preview.totalEligible).toBe(3);
     expect(preview.dryRun).toBe(true);
     expect(preview.sentNotifications).toBe(0);
-    expect(db.prepare('SELECT COUNT(*) AS count FROM sent_notifications').get()).toMatchObject({ count: 1 });
+    expect(db.prepare('SELECT COUNT(*) AS count FROM sent_notifications').get()).toMatchObject({
+      count: 1,
+    });
 
     const guarded = purgeExpiredDeliveryLogs(now, { maxRows: 2 });
     expect(guarded.alertThresholdExceeded).toBe(true);
@@ -473,9 +526,14 @@ describe('Delivery audit log — durable, queryable, retention-enforced', () => 
     expect(deleted.sentNotifications).toBe(1);
     expect(deleted.dispatchAttempts).toBe(1);
     expect(deleted.redeemedTokens).toBe(1);
-    expect(db.prepare("SELECT COUNT(*) AS count FROM dispatch_attempts WHERE status = 'pending'").get()).toMatchObject({ count: 1 });
     expect(
-      db.prepare('SELECT run_mode, deleted_rows FROM retention_deletion_audit WHERE category = ? ORDER BY id')
+      db.prepare("SELECT COUNT(*) AS count FROM dispatch_attempts WHERE status = 'pending'").get()
+    ).toMatchObject({ count: 1 });
+    expect(
+      db
+        .prepare(
+          'SELECT run_mode, deleted_rows FROM retention_deletion_audit WHERE category = ? ORDER BY id'
+        )
         .all('sent_notifications')
     ).toEqual([
       { run_mode: 'dry-run', deleted_rows: 0 },
@@ -502,7 +560,14 @@ describe('Delivery audit log — durable, queryable, retention-enforced', () => 
         (id, dedup_key, invoice_id, trigger, recipient_address, channel, destination,
          event_id, subscription, payload, status, attempts, created_at, updated_at)
        VALUES (?, ?, 1, 'invoice_paid', 'GUNSUBSCRIBE', 'webhook', ?, '', ?, '{}', 'pending', 0, ?, ?)`
-    ).run('unsubscribe-attempt', 'unsubscribe-dedup', sub.destination, JSON.stringify(sub), Date.now(), Date.now());
+    ).run(
+      'unsubscribe-attempt',
+      'unsubscribe-dedup',
+      sub.destination,
+      JSON.stringify(sub),
+      Date.now(),
+      Date.now()
+    );
     createDeliveryAuditLog({
       invoice_id: 1,
       trigger: 'invoice_paid',
@@ -515,9 +580,19 @@ describe('Delivery audit log — durable, queryable, retention-enforced', () => 
     });
 
     expect(deleteSubscriptionById(sub.id)).toBe(true);
-    expect(db.prepare('SELECT COUNT(*) AS count FROM subscriptions WHERE id = ?').get(sub.id)).toMatchObject({ count: 0 });
-    expect(db.prepare('SELECT COUNT(*) AS count FROM webhook_delivery_logs WHERE subscription_id = ?').get(sub.id)).toMatchObject({ count: 0 });
-    expect(db.prepare('SELECT COUNT(*) AS count FROM dispatch_attempts WHERE id = ?').get('unsubscribe-attempt')).toMatchObject({ count: 0 });
+    expect(
+      db.prepare('SELECT COUNT(*) AS count FROM subscriptions WHERE id = ?').get(sub.id)
+    ).toMatchObject({ count: 0 });
+    expect(
+      db
+        .prepare('SELECT COUNT(*) AS count FROM webhook_delivery_logs WHERE subscription_id = ?')
+        .get(sub.id)
+    ).toMatchObject({ count: 0 });
+    expect(
+      db
+        .prepare('SELECT COUNT(*) AS count FROM dispatch_attempts WHERE id = ?')
+        .get('unsubscribe-attempt')
+    ).toMatchObject({ count: 0 });
     expect(countDeliveryAuditLogs({ recipient: 'GUNSUBSCRIBE' })).toBe(1);
   });
 
@@ -546,11 +621,25 @@ describe('Delivery audit log — durable, queryable, retention-enforced', () => 
     });
     db.prepare(
       `INSERT INTO webhook_delivery_logs (subscription_id, event_id, trigger, invoice_id, recipient_address, status, attempts, response_status, error, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    ).run(durableSub.id, 'evt-durable', 'invoice_funded', 30, 'GDURABLE', 'failed', 3, 500, 'HTTP 500', now, now);
+    ).run(
+      durableSub.id,
+      'evt-durable',
+      'invoice_funded',
+      30,
+      'GDURABLE',
+      'failed',
+      3,
+      500,
+      'HTTP 500',
+      now,
+      now
+    );
 
     // Simulate clearing transient retry state (e.g., process restart clears in-memory retry queue + webhook logs truncation)
     db.prepare('DELETE FROM webhook_delivery_logs WHERE event_id = ?').run('evt-durable');
-    const webhookLogs = db.prepare('SELECT * FROM webhook_delivery_logs WHERE event_id = ?').all('evt-durable');
+    const webhookLogs = db
+      .prepare('SELECT * FROM webhook_delivery_logs WHERE event_id = ?')
+      .all('evt-durable');
     expect(webhookLogs).toHaveLength(0);
 
     // Audit log must still be queryable
@@ -558,5 +647,50 @@ describe('Delivery audit log — durable, queryable, retention-enforced', () => 
     expect(audits).toHaveLength(1);
     expect(audits[0].status).toBe('failed');
     expect(audits[0].attempt_timestamps).toHaveLength(3);
+  });
+});
+
+describe('Compliance audit chain', () => {
+  beforeEach(() => {
+    process.env.NOTIFICATIONS_AUDIT_KEY = 'auditor-test-key';
+    setDb(createDb(':memory:'));
+  });
+
+  afterEach(() => {
+    delete process.env.NOTIFICATIONS_AUDIT_KEY;
+  });
+
+  it('verifies delivery creation and mutation as an authenticated chain', () => {
+    const entry = createDeliveryAuditLog({
+      invoice_id: 7,
+      trigger: 'invoice_funded',
+      recipient_address: 'GTEST',
+      channel: 'email',
+      destination: 'audit@example.test',
+      status: 'pending',
+      attempts: 0,
+      attempt_timestamps: [],
+    });
+    updateDeliveryAuditLog(entry.id, { status: 'delivered', attempts: 1 });
+    expect(verifyComplianceAuditChain()).toMatchObject({ valid: true, entries: 2 });
+  });
+
+  it('rejects attempts to mutate or delete compliance evidence', () => {
+    const db = createDb(':memory:');
+    setDb(db);
+    createDeliveryAuditLog({
+      invoice_id: 9,
+      trigger: 'invoice_funded',
+      recipient_address: 'GTEST',
+      channel: 'email',
+      destination: 'audit@example.test',
+      status: 'delivered',
+      attempts: 1,
+      attempt_timestamps: [Date.now()],
+    });
+    expect(() => db.prepare("UPDATE compliance_audit_chain SET action = 'forged'").run()).toThrow(
+      /append-only/
+    );
+    expect(() => db.prepare('DELETE FROM compliance_audit_chain').run()).toThrow(/append-only/);
   });
 });

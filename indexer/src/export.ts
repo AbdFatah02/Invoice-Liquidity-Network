@@ -57,8 +57,7 @@ function positiveNumber(raw: string | undefined, fallback: number): number {
 export function exportSessionBudget(): ExportSessionBudget {
   return {
     maxRows: positiveNumber(process.env.EXPORT_SESSION_MAX_ROWS, 200_000),
-    maxMs:
-      positiveNumber(process.env.EXPORT_SESSION_MAX_SECONDS, 300) * 1000,
+    maxMs: positiveNumber(process.env.EXPORT_SESSION_MAX_SECONDS, 300) * 1000,
     maxBytes: positiveNumber(process.env.EXPORT_SESSION_MAX_BYTES, 100_000_000),
   };
 }
@@ -243,7 +242,9 @@ export async function processExportJob(jobId: string): Promise<void> {
       const rowBudget = Math.min(ASYNC_EXPORT_LIMIT, exportPageMaxRows(), sessionLeft);
       const count = countInvoicesForExport(filter);
       if (count > ASYNC_EXPORT_LIMIT) {
-        throw new Error(`Result set too large (${count} rows). Maximum allowed for async export is ${ASYNC_EXPORT_LIMIT}.`);
+        throw new Error(
+          `Result set too large (${count} rows). Maximum allowed for async export is ${ASYNC_EXPORT_LIMIT}.`
+        );
       }
       const stmtResult = streamInvoicesExport(sink, filter, entry.job.format, {
         maxRows: rowBudget,
@@ -265,7 +266,9 @@ export async function processExportJob(jobId: string): Promise<void> {
       const rowBudget = Math.min(ASYNC_EXPORT_LIMIT, exportPageMaxRows(), sessionLeft);
       const count = countEventsForExport(filter);
       if (count > ASYNC_EXPORT_LIMIT) {
-        throw new Error(`Result set too large (${count} rows). Maximum allowed for async export is ${ASYNC_EXPORT_LIMIT}.`);
+        throw new Error(
+          `Result set too large (${count} rows). Maximum allowed for async export is ${ASYNC_EXPORT_LIMIT}.`
+        );
       }
       result = streamEventsExport(sink, filter, entry.job.format, {
         maxRows: rowBudget,
@@ -339,14 +342,6 @@ export function queryInvoicesForExport(filter: ExportFilter): Invoice[] {
   return getDb()
     .prepare(`SELECT * FROM invoices ${where} ORDER BY id ASC`)
     .all(...params) as Invoice[];
-}
-
-export function queryEventsForExport(filter: EventExportFilter): ILNEvent[] {
-  const { clauses, params } = buildEventClauses(filter);
-  const where = clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : '';
-  return getDb()
-    .prepare(`SELECT * FROM events ${where} ORDER BY ledger ASC`)
-    .all(...params) as ILNEvent[];
 }
 
 // ─── Clause builders ──────────────────────────────────────────────────────────
@@ -552,8 +547,7 @@ function streamQuery<T>(
       const wouldExceedBytes =
         writer.bytesWritten + writer.pendingBytes + Buffer.byteLength(chunk, 'utf8') >
         options.maxBytes;
-      const exceededTime =
-        rowsWritten % 256 === 0 && Date.now() - startMs > options.maxMs;
+      const exceededTime = rowsWritten % 256 === 0 && Date.now() - startMs > options.maxMs;
       if (rowsWritten + 1 > options.maxRows || wouldExceedBytes || exceededTime) {
         truncated = true;
         break;
@@ -596,7 +590,13 @@ export function streamInvoicesExport(
   sink: ExportSink,
   filter: ExportFilter,
   format: ExportFormat,
-  options: { maxRows: number; maxBytes: number; maxMs: number; rowsBefore?: number; withHeader?: boolean }
+  options: {
+    maxRows: number;
+    maxBytes: number;
+    maxMs: number;
+    rowsBefore?: number;
+    withHeader?: boolean;
+  }
 ): StreamExportResult {
   const { clauses, params } = buildInvoiceClauses(filter);
   const where = clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : '';
@@ -617,7 +617,13 @@ export function streamEventsExport(
   sink: ExportSink,
   filter: EventExportFilter,
   format: ExportFormat,
-  options: { maxRows: number; maxBytes: number; maxMs: number; rowsBefore?: number; withHeader?: boolean }
+  options: {
+    maxRows: number;
+    maxBytes: number;
+    maxMs: number;
+    rowsBefore?: number;
+    withHeader?: boolean;
+  }
 ): StreamExportResult {
   const { clauses, params } = buildEventClauses(filter);
   const where = clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : '';

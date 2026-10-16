@@ -8,6 +8,7 @@ import type {
   DisputeResolutionDecision,
 } from '@iln/shared';
 
+/** @public Stable cache-key factory for consumers that invalidate dispute queries directly. */
 export const disputeKeys = {
   all: ['disputes'] as const,
   dispute: (id: bigint | string) => ['disputes', 'detail', String(id)] as const,

@@ -94,14 +94,6 @@ export function escapeHtml(str: string): string {
 }
 
 /**
- * Escape a string for safe embedding in an HTML attribute value (e.g. href).
- * Uses escapeHtml and additionally escapes backticks and validates URL scheme.
- */
-export function escapeAttribute(str: string): string {
-  return escapeHtml(str).replace(/`/g, '&#96;');
-}
-
-/**
  * Escape for Discord markdown output.
  * Neutralizes: **, *, __, _, `, ||, > quote, [link], @everyone/@here, #channel
  */
@@ -135,7 +127,10 @@ export function escapeSmsText(str: string): string {
  * Returns a fallback sanitized string rather than throwing for resilience.
  */
 export function escapeHeaderValue(str: string): string {
-  return str.replace(/[\r\n\x00-\x1F\x7F]+/g, ' ').trim().slice(0, 512);
+  return str
+    .replace(/[\r\n\x00-\x1F\x7F]+/g, ' ')
+    .trim()
+    .slice(0, 512);
 }
 
 /**

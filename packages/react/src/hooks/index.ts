@@ -82,8 +82,9 @@ export {
   useResolveDispute,
   useAutoResolveDispute,
   useDisputeAnalytics,
-  disputeKeys,
 } from './useDispute';
+/** @public Stable cache-key factory for external query invalidation. */
+export { disputeKeys } from './useDispute';
 export type {
   UseDisputeResult,
   UseDisputeListResult,
@@ -97,4 +98,3 @@ export type {
   ResolveDisputeParams,
   AutoResolveDisputeParams,
 } from './useDispute';
-
