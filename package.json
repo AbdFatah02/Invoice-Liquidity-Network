@@ -79,7 +79,17 @@
     "check:example-sdk-resolution": "node scripts/check-example-sdk-resolution.mjs",
     "test:example-sdk-resolution": "node --test scripts/__tests__/check-example-sdk-resolution.test.mjs",
     "check:sdk-client-drift": "node scripts/check-sdk-client-drift.mjs",
-    "test:sdk-client-drift": "node --test scripts/__tests__/check-sdk-client-drift.test.mjs"
+    "test:sdk-client-drift": "node --test scripts/__tests__/check-sdk-client-drift.test.mjs",
+    "check:sdk-export-maps": "node scripts/check-sdk-export-maps.mjs",
+    "test:sdk-export-maps": "node --test scripts/__tests__/check-sdk-export-maps.test.mjs",
+    "check:sdk-support-windows": "node scripts/check-sdk-support-windows.mjs",
+    "test:sdk-support-windows": "node --test scripts/__tests__/check-sdk-support-windows.test.mjs",
+    "check:sdk-rc-smoke": "node scripts/sdk-rc-smoke.mjs",
+    "test:sdk-rc-smoke": "node --test scripts/__tests__/sdk-rc-smoke.test.mjs",
+    "check:react-peer-contract": "node scripts/check-react-peer-contract.mjs",
+    "test:react-peer-contract": "node --test scripts/__tests__/check-react-peer-contract.test.mjs",
+    "check:sdk-package-names": "node scripts/check-sdk-package-names.mjs",
+    "test:sdk-package-names": "node --test scripts/__tests__/check-sdk-package-names.test.mjs"
   },
   "devDependencies": {
     "@changesets/cli": "^2.31.0",

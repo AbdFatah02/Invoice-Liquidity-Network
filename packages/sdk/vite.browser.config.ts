@@ -12,7 +12,7 @@ export default defineConfig({
     outDir: 'dist/browser',
     target: 'es2022',
     rollupOptions: {
-      external: [],
+      external: ['@stellar/freighter-api'],
     },
   },
   resolve: {

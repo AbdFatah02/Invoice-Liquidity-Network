@@ -1,0 +1,78 @@
+name: React Peer Contract
+
+# Blocking guard for the @iln/react peer-dependency contract (#1213).
+#
+# Fails when React, @tanstack/react-query or @iln/sdk stops being declared as a
+# peer, when a peer range drifts from the documented contract (react@^19.0.0,
+# @tanstack/react-query@^5.62.0, @iln/sdk@^0.1.0), when a peer is no longer
+# externalized in the rollup config, when the Node engine drops below 20, or
+# when the docs stop describing the contract. The JSON report is uploaded on
+# every run (pass or fail) as proof the control ran — see
+# docs/runbooks/react-peer-contract.md.
+#
+# Dependency-free (plain Node), so it does not need a pnpm install.
+
+on:
+  pull_request:
+    branches:
+      - main
+      - dev
+  push:
+    branches:
+      - main
+      - dev
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  react-peer-contract:
+    name: React peer contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Unit tests for the guard
+        run: node --test scripts/__tests__/check-react-peer-contract.test.mjs
+
+      - name: Enforce peer-dependency contract
+        run: node scripts/check-react-peer-contract.mjs --json="$RUNNER_TEMP/react-peer-contract-report.json"
+
+      - name: Job summary
+        if: always()
+        run: |
+          REPORT="$RUNNER_TEMP/react-peer-contract-report.json"
+          [ -f "$REPORT" ] || exit 0
+          node -e '
+            const r = require(process.argv[1]);
+            const s = r.summary;
+            const lines = [
+              "### React peer contract",
+              "",
+              `| Result | Findings | Peers |`,
+              `|---|---|---|`,
+              `| ${s.ok ? "✅ pass" : "❌ fail"} | ${s.total} | ${(s.peers || []).join(", ")} |`,
+            ];
+            console.log(lines.join("\n"));
+          ' "$REPORT" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: react-peer-contract-report
+          path: ${{ runner.temp }}/react-peer-contract-report.json
+          if-no-files-found: ignore
+          retention-days: 30

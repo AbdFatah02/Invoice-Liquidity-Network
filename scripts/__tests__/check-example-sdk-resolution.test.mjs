@@ -11,7 +11,10 @@ import {
   REQUIRED_EXPORTS,
 } from '../check-example-sdk-resolution.mjs';
 
-const SCRIPT = resolve(dirname(fileURLToPath(import.meta.url)), '../check-example-sdk-resolution.mjs');
+const SCRIPT = resolve(
+  dirname(fileURLToPath(import.meta.url)),
+  '../check-example-sdk-resolution.mjs'
+);
 const REPO_ROOT = resolve(dirname(SCRIPT), '..');
 
 function write(root, rel, content) {
@@ -104,7 +107,7 @@ describe('failure', () => {
     write(testRoot, 'examples/javascript-example/package.json', {
       name: 'iln-javascript-example',
       dependencies: {
-        '@invoice-liquidity/sdk': 'file:../../sdk',
+        '@invoice-liquidity/sdk': 'file:../../sdk', // sdk-name-check: allow-legacy
       },
     });
     const report = checkExampleSdkResolution(testRoot);
@@ -205,6 +208,11 @@ describe('boundary conditions', () => {
 
   it('verifies all expected canonical exports are recognized', () => {
     assert.equal(CANONICAL_SDK_NAME, '@iln/sdk');
-    assert.deepEqual(REQUIRED_EXPORTS, ['ILNSdk', 'ILN_TESTNET', 'createKeypairSigner', 'SDK_VERSION']);
+    assert.deepEqual(REQUIRED_EXPORTS, [
+      'ILNSdk',
+      'ILN_TESTNET',
+      'createKeypairSigner',
+      'SDK_VERSION',
+    ]);
   });
 });

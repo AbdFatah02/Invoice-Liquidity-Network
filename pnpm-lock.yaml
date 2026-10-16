@@ -878,6 +878,9 @@ importers:
 
   packages/sdk:
     dependencies:
+      '@iln/shared':
+        specifier: workspace:*
+        version: link:../shared
       '@stellar/stellar-sdk':
         specifier: ^15.0.1
         version: 15.1.0

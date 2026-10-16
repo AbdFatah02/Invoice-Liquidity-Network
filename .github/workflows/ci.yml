@@ -392,6 +392,15 @@ jobs:
       - name: Validate all workspace package.json files
         run: node scripts/validate-packages.mjs
 
+      - name: Check SDK export map consistency (#1210)
+        run: pnpm check:sdk-export-maps
+
+      - name: Check SDK support windows (#1211)
+        run: pnpm check:sdk-support-windows
+
+      - name: Check React peer contract (#1213)
+        run: pnpm check:react-peer-contract
+
       - name: Comment PR on failure
         if: failure() && github.event_name == 'pull_request' && !github.event.pull_request.head.repo.fork
         continue-on-error: true
@@ -403,6 +412,47 @@ jobs:
               owner: context.repo.owner,
               repo: context.repo.repo,
               body: '🚨 **Package.json validation failed!** Run `node scripts/validate-packages.mjs` locally and fix violations before merging.'
+            })
+
+  sdk-rc-smoke:
+    name: SDK RC pack smoke (#1212)
+    needs: [pnpm-cache, changes]
+    if: >-
+      needs.changes.outputs.sdk == 'true' ||
+      needs.changes.outputs.packages == 'true' ||
+      needs.changes.outputs.shared_config == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup pnpm with store cache
+        uses: ./.github/actions/setup-pnpm
+
+      - name: Build shared workspace dependency
+        run: pnpm --filter @iln/shared build
+
+      - name: Pack and resolve both SDK surfaces (#1212)
+        run: pnpm check:sdk-rc-smoke --json=rc-smoke-report.json
+
+      - name: Upload RC smoke report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sdk-rc-smoke-report
+          path: rc-smoke-report.json
+          if-no-files-found: warn
+
+      - name: Comment PR on failure
+        if: failure() && github.event_name == 'pull_request' && !github.event.pull_request.head.repo.fork
+        continue-on-error: true
+        uses: actions/github-script@v7
+        with:
+          script: |
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: '🚨 **SDK RC smoke failed!** A packed SDK surface does not resolve. Run `pnpm check:sdk-rc-smoke` locally and inspect `rc-smoke-report.json` before merging.'
             })
 
   monorepo-map:
@@ -851,6 +901,10 @@ jobs:
           npm run test:provenance
           npm run test:sdk-fixture-mocks
           npm run test:sdk-package-names
+          npm run test:sdk-export-maps
+          npm run test:sdk-support-windows
+          npm run test:sdk-rc-smoke
+          npm run test:react-peer-contract
           npm run test:contract-abi-compat
           npm run test:release-scripts
           npm run test:canary

@@ -37,6 +37,7 @@ import {
   XDRParseError,
   InvalidAddressError,
   RateLimitError,
+  TimeoutError,
   SimulationError,
 } from './errors';
 

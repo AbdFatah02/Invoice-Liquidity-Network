@@ -1,0 +1,83 @@
+name: SDK Export Maps
+
+# Blocking guard for export-map consistency across the SDK surfaces (#1210):
+#   sdk/          → @iln/sdk
+#   packages/sdk/ → @iln/sdk-next
+#   packages/react/ → @iln/react
+#
+# Fails when a surface diverges from the shared export contract — a `types`
+# condition that is not first, a missing types/import/require condition, a
+# top-level main/module/types field that disagrees with exports["."], a
+# non-relative target, or an example pinned to a published SDK version. The
+# JSON report is uploaded on every run (pass or fail) as proof the control ran
+# — see docs/runbooks/sdk-export-maps.md.
+#
+# Dependency-free (plain Node), so it does not need a pnpm install.
+
+on:
+  pull_request:
+    branches:
+      - main
+      - dev
+  push:
+    branches:
+      - main
+      - dev
+  schedule:
+    # Weekly sweep so the control stays visibly active between PRs.
+    - cron: '41 5 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  sdk-export-maps:
+    name: SDK export map consistency
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Unit tests for the guard
+        run: node --test scripts/__tests__/check-sdk-export-maps.test.mjs
+
+      - name: Enforce export-map consistency
+        run: node scripts/check-sdk-export-maps.mjs --json="$RUNNER_TEMP/sdk-export-maps-report.json"
+
+      - name: Job summary
+        if: always()
+        run: |
+          REPORT="$RUNNER_TEMP/sdk-export-maps-report.json"
+          [ -f "$REPORT" ] || exit 0
+          node -e '
+            const r = require(process.argv[1]);
+            const s = r.summary;
+            const lines = [
+              "### SDK export maps",
+              "",
+              `| Result | Findings | Surfaces |`,
+              `|---|---|---|`,
+              `| ${s.ok ? "✅ pass" : "❌ fail"} | ${s.total} | ${s.surfaces.join(", ")} |`,
+            ];
+            console.log(lines.join("\n"));
+          ' "$REPORT" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sdk-export-maps-report
+          path: ${{ runner.temp }}/sdk-export-maps-report.json
+          if-no-files-found: ignore
+          retention-days: 30

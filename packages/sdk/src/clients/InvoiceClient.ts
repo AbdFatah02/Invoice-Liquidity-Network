@@ -881,7 +881,8 @@ export class InvoiceClient {
 
       throw new NetworkError(
         `Network error during ${operation} for ${method}: ${message}`,
-        Number.isFinite(status) ? status : undefined
+        undefined,
+        Number.isFinite(status) ? { status } : undefined
       );
     }
   }
