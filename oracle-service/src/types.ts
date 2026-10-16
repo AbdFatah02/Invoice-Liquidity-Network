@@ -1,4 +1,5 @@
 import type { AuditRowStore } from './audit-store';
+import type { PayerAuthorizationDecision } from './authorization';
 import type { DeltaBoundsConfig, OracleDeltaGuardInfo } from './deltaBounds';
 import type { OracleSigningKeyStore, SignedPriceUpdate } from './signer';
 import type { SourceFailoverConfig, SourceHealthState } from './sourceFailover';
@@ -101,7 +102,8 @@ export type OracleCompositionOutcome =
   | 'rejected-fraud-signals'
   | 'rejected-low-trust'
   | 'rejected-stale-data'
-  | 'rejected-kyb-unavailable';
+  | 'rejected-kyb-unavailable'
+  | 'rejected-kyb-unverified';
 
 /** The heuristic sub-signal, reported alongside the composed verdict. */
 export interface OracleHeuristicSignal {
@@ -187,6 +189,12 @@ export interface OracleVerificationResponse {
    */
   stale?: boolean;
   degraded?: boolean;
+  /**
+   * Payer authorization failure taxonomy (issue #1232): stable code(s) for
+   * why the payer was denied. Attached by the verifier on every return path;
+   * absent only on raw cache entries, which are re-classified on read.
+   */
+  authorization?: PayerAuthorizationDecision;
 }
 
 /**

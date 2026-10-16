@@ -33,6 +33,7 @@ import {
   buildOraclePayerKeyPrefix,
   resolveCacheTtlSeconds,
 } from './cache';
+import { enforcePayerAuthorization } from './authorization';
 import { composeVerdict, confidenceLevelFromScore } from './composition';
 import {
   DeltaBoundsGuard,
@@ -369,6 +370,10 @@ export function assessOracleRequest(input: OracleAssessmentInput): OracleAssessm
     isFresh,
     external: input.external,
   });
+  // The KYB provider (#868) is a blocking gate, unlike the advisory external
+  // signal composed above: an explicit KYB rejection must deny the verdict.
+  // It is applied after composition, so the outcome is rewritten here rather
+  // than left claiming a verified result next to a KYB failure (#1232).
   let kybPassed = true;
   if (input.kybResult) {
     computed.evidence.push(
@@ -385,12 +390,12 @@ export function assessOracleRequest(input: OracleAssessmentInput): OracleAssessm
     }
   }
 
-  const isVerified =
-    computed.trustScore >= 70 &&
-    computed.confidence >= 0.55 &&
-    computed.fraudSignals.length === 0 &&
-    isFresh &&
-    kybPassed;
+  if (!kybPassed && verdict.isVerified) {
+    const rationale = `KYB provider (${input.kybResult?.provider}) did not verify the payer.`;
+    verdict.isVerified = false;
+    verdict.composition = { ...verdict.composition, outcome: 'rejected-kyb-unverified', rationale };
+    verdict.evidence.push(`Composition outcome: rejected-kyb-unverified — ${rationale}`);
+  }
 
   return {
     sourceTimestampMs: computed.sourceTimestampMs,
@@ -621,7 +626,19 @@ export class OracleVerifier {
     };
   }
 
+  /**
+   * Every verdict leaves through the payer authorization taxonomy (#1232),
+   * whichever path produced it — fresh, cache replay, in-flight join or
+   * degraded — so a published `isVerified: true` never coexists with a
+   * failure code, including for cache entries written before the taxonomy.
+   */
   async verify(request: OracleVerificationRequest): Promise<OracleVerificationResponse> {
+    return enforcePayerAuthorization(await this.resolveVerification(request));
+  }
+
+  private async resolveVerification(
+    request: OracleVerificationRequest
+  ): Promise<OracleVerificationResponse> {
     const normalizedRequest = {
       ...request,
       payer: request.payer.trim(),

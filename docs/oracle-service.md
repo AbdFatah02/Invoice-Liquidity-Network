@@ -49,6 +49,11 @@ external signal tightens the bar without being an outright veto.
 3. Trust or confidence below threshold → `rejected-low-trust`
 4. Otherwise → `verified-both` or `verified-heuristic-only`
 
+Two outcomes come from KYB, outside the heuristic/external composition above.
+If a configured KYB provider (#868) explicitly fails the payer, a passing verdict
+becomes `rejected-kyb-unverified`. If a *required* KYB provider does not answer,
+the outcome is `rejected-kyb-unavailable`.
+
 Staleness outranks fraud only because a stale assessment is not evidence of
 anything — reporting a fraud verdict we cannot stand behind would be worse than
 declining to answer.
@@ -75,6 +80,14 @@ the final boolean, so `OracleBadge` can render the four cases distinctly:
 ```
 
 `policy` is versioned so stored verdicts stay auditable when the rules change.
+
+### Authorization failure taxonomy
+
+Every verdict also carries an `authorization` block, a stable failure code for
+each reason the payer was denied (#1232). Error responses carry the same `code`
+field. The verifier fails closed: `isVerified: true` is never published
+alongside a failure code. For the code table, metrics, alerts and operator
+steps, see [Payer Authorization Failures Runbook](runbooks/payer-authorization-failures.md).
 
 ### Wiring a provider
 
@@ -207,6 +220,9 @@ contents on restart cannot honour the retention window it advertises.
 | `oracle_fraud_flag_ratio` | gauge | Share of the last 200 verdicts carrying a fraud signal |
 | `oracle_external_verification_total` | counter | Provider lookups by status |
 | `oracle_audit_integrity_failures_total` | counter | Integrity checks that found a broken chain |
+| `oracle_payer_authorization_decisions_total` | counter | Payer checks by allow/deny and stage (#1232) |
+| `oracle_payer_authorization_failures_total` | counter | Denials by taxonomy code and category |
+| `oracle_payer_authorization_taxonomy_info` | gauge | Always 1; proves the fail-closed control is loaded |
 
 `oracle_audit_integrity_failures_total` only moves when something calls
 `GET /v1/audit/integrity`, so there is deliberately no alert rule watching it: a
@@ -242,6 +258,8 @@ someone for a single actor.
 | `OracleVerificationLatencyHigh` | p95 > 2s for 10m | warning |
 | `OracleCacheHitRateLow` | hit rate < 20% for 15m | warning |
 | `OracleExternalProviderUnavailable` | >50% `unknown` for 10m | warning |
+| `OraclePayerAuthorizationTaxonomyMissing` | instance up without taxonomy gauge for 10m | critical |
+| `OraclePayerAuthorizationDependencyDenials` | >10% of checks denied for dependency/internal causes over 10m | warning |
 
 A fraud-rate spike is either an attack or a heuristic regression. Check
 `oracle_fraud_signal_total` to tell them apart: a single signal dominating points
