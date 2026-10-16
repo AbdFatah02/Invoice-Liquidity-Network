@@ -44,7 +44,10 @@ export function hashFile(filePath) {
 export async function verifyPackageReproducibility(packageDir, packageName, options = {}) {
   const rootDir = options.rootDir ?? ROOT_DIR;
   const epoch = options.sourceDateEpoch ?? getSourceDateEpoch(rootDir);
-  const tempBase = join(tmpdir(), `repro-verify-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+  const tempBase = join(
+    tmpdir(),
+    `repro-verify-${Date.now()}-${Math.random().toString(36).slice(2)}`
+  );
   const dirA = join(tempBase, 'build-a');
   const dirB = join(tempBase, 'build-b');
 
@@ -111,22 +114,35 @@ export async function verifyPackageReproducibility(packageDir, packageName, opti
   }
 }
 
-export async function verifyReproducibleBuilds(targets = [
-  { packageDir: 'sdk', packageName: '@iln/sdk' },
-  { packageDir: 'cli', packageName: '@invoice-liquidity/cli' },
-], options = {}) {
+export async function verifyReproducibleBuilds(
+  targets = [
+    { packageDir: 'sdk', packageName: '@iln/sdk' },
+    { packageDir: 'cli', packageName: '@invoice-liquidity/cli' },
+  ],
+  options = {}
+) {
   const results = [];
   let allMatched = true;
 
-  console.log(`[reproducible-builds] Verifying ${targets.length} package artifacts with SOURCE_DATE_EPOCH=${options.sourceDateEpoch ?? getSourceDateEpoch()}...`);
+  console.log(
+    `[reproducible-builds] Verifying ${targets.length} package artifacts with SOURCE_DATE_EPOCH=${
+      options.sourceDateEpoch ?? getSourceDateEpoch()
+    }...`
+  );
 
   for (const target of targets) {
     console.log(`[reproducible-builds] Building and packing ${target.packageName} twice...`);
-    const result = await verifyPackageReproducibility(target.packageDir, target.packageName, options);
+    const result = await verifyPackageReproducibility(
+      target.packageDir,
+      target.packageName,
+      options
+    );
     results.push(result);
 
     if (result.match) {
-      console.log(`✔ [reproducible-builds] ${target.packageName} (${result.artifactName}) is reproducible:`);
+      console.log(
+        `✔ [reproducible-builds] ${target.packageName} (${result.artifactName}) is reproducible:`
+      );
       console.log(`   SHA256: ${result.hashA}`);
     } else {
       allMatched = false;

@@ -80,10 +80,10 @@ pnpm --filter @iln/sdk build
 sha256sum /tmp/run-a/*.tgz /tmp/run-b/*.tgz
 ```
 
-Expected output:
-```
-cb5ceb711739818ea7c5b610c36bfe6136fa89c02ff2fae8be48bf7ae7d7c669  /tmp/run-a/iln-sdk-0.1.0.tgz
-cb5ceb711739818ea7c5b610c36bfe6136fa89c02ff2fae8be48bf7ae7d7c669  /tmp/run-b/iln-sdk-0.1.0.tgz
+Expected output (checksums match identically):
+```text
+<sha256-checksum>  /tmp/run-a/iln-sdk-0.1.0.tgz
+<sha256-checksum>  /tmp/run-b/iln-sdk-0.1.0.tgz
 ```
 
 ---

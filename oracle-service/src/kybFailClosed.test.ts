@@ -278,10 +278,7 @@ describe('KYB Provider Fail-Closed Hardening (Issue #1233)', () => {
 
       try {
         // Trigger verification request to drive source health tracking
-        const verifyRes = await request(service.app)
-          .post('/v1/verify')
-          .send(REQUEST)
-          .expect(200);
+        const verifyRes = await request(service.app).post('/v1/verify').send(REQUEST).expect(200);
 
         expect(verifyRes.body.isVerified).toBe(false);
         expect(verifyRes.body.authorization?.primary).toBe('PAYER_KYB_UNAVAILABLE');

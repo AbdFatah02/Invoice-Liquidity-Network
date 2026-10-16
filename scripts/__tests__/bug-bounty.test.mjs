@@ -38,17 +38,11 @@ test('SECURITY.md links to docs/bug-bounty.md and outlines the bounty program', 
   assert.ok(existsSync(secPath), 'SECURITY.md must exist');
 
   const content = readFileSync(secPath, 'utf8');
-  assert.ok(
-    content.includes('docs/bug-bounty.md'),
-    'SECURITY.md must link to docs/bug-bounty.md',
-  );
-  assert.ok(
-    content.includes('Bug Bounty Program'),
-    'SECURITY.md must describe Bug Bounty Program',
-  );
+  assert.ok(content.includes('docs/bug-bounty.md'), 'SECURITY.md must link to docs/bug-bounty.md');
+  assert.ok(content.includes('Bug Bounty Program'), 'SECURITY.md must describe Bug Bounty Program');
   assert.ok(
     content.includes('25,000') || content.includes('25 000'),
-    'SECURITY.md must mention reward tiers up to $25,000',
+    'SECURITY.md must mention reward tiers up to $25,000'
   );
 });
 
@@ -59,7 +53,7 @@ test('docs/vulnerability-disclosure.md references docs/bug-bounty.md', () => {
   const content = readFileSync(vulnPath, 'utf8');
   assert.ok(
     content.includes('bug-bounty.md'),
-    'docs/vulnerability-disclosure.md must link to bug-bounty.md',
+    'docs/vulnerability-disclosure.md must link to bug-bounty.md'
   );
 });
 

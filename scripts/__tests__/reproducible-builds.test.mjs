@@ -17,10 +17,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import {
-  getSourceDateEpoch,
-  hashFile,
-} from '../verify-reproducible-builds.mjs';
+import { getSourceDateEpoch, hashFile } from '../verify-reproducible-builds.mjs';
 
 const ROOT = fileURLToPath(new URL('../..', import.meta.url));
 
@@ -53,13 +50,11 @@ test('reproducible builds CI workflow exists and runs reproducible verification'
 
   const content = readFileSync(workflowPath, 'utf8');
   assert.ok(
-    content.includes('verify-reproducible-builds.mjs') || content.includes('test:reproducible-builds'),
-    'Workflow must execute verify-reproducible-builds or test:reproducible-builds',
+    content.includes('verify-reproducible-builds.mjs') ||
+      content.includes('test:reproducible-builds'),
+    'Workflow must execute verify-reproducible-builds or test:reproducible-builds'
   );
-  assert.ok(
-    content.includes('SOURCE_DATE_EPOCH'),
-    'Workflow must set or verify SOURCE_DATE_EPOCH',
-  );
+  assert.ok(content.includes('SOURCE_DATE_EPOCH'), 'Workflow must set or verify SOURCE_DATE_EPOCH');
 });
 
 test('reproducible builds documentation exists and is registered in docs/_meta.json', () => {
@@ -67,9 +62,15 @@ test('reproducible builds documentation exists and is registered in docs/_meta.j
   assert.ok(existsSync(docPath), 'docs/reproducible-builds.md must exist');
 
   const docContent = readFileSync(docPath, 'utf8');
-  assert.ok(docContent.includes('SOURCE_DATE_EPOCH'), 'Documentation must explain SOURCE_DATE_EPOCH');
+  assert.ok(
+    docContent.includes('SOURCE_DATE_EPOCH'),
+    'Documentation must explain SOURCE_DATE_EPOCH'
+  );
   assert.ok(docContent.includes('@iln/sdk'), 'Documentation must mention @iln/sdk');
-  assert.ok(docContent.includes('@invoice-liquidity/cli'), 'Documentation must mention @invoice-liquidity/cli');
+  assert.ok(
+    docContent.includes('@invoice-liquidity/cli'),
+    'Documentation must mention @invoice-liquidity/cli'
+  );
 
   const meta = JSON.parse(readFileSync(join(ROOT, 'docs', '_meta.json'), 'utf8'));
   assert.ok(meta['reproducible-builds'], 'docs/_meta.json must include reproducible-builds entry');
