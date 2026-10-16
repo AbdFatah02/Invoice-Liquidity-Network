@@ -28,6 +28,8 @@
 import { existsSync, readFileSync } from 'fs';
 import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
+import { checkSdkClientDrift } from './check-sdk-client-drift.mjs';
+import { checkExampleSdkResolution } from './check-example-sdk-resolution.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, '..');
@@ -114,6 +116,24 @@ const GATES = [
       }
     },
     message: 'SDK package.json must define exports field (for legacy import compatibility)',
+    severity: 'error',
+  },
+  {
+    name: 'Generated-Client Drift Detection',
+    check: () => {
+      const report = checkSdkClientDrift(ROOT);
+      return report.findings.length === 0;
+    },
+    message: 'Generated client types must be aligned with contract spec (no drift detected)',
+    severity: 'error',
+  },
+  {
+    name: 'Example SDK Resolution',
+    check: () => {
+      const report = checkExampleSdkResolution(ROOT);
+      return report.findings.length === 0;
+    },
+    message: 'Examples must resolve canonical @iln/sdk package and exports contract',
     severity: 'error',
   },
 ];

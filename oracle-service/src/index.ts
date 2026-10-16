@@ -548,6 +548,7 @@ export async function createOracleApp(
     externalProvider: options.externalProvider,
     kybProvider: options.kybProvider,
     requireKyb: options.requireKyb ?? process.env.NODE_ENV === 'production',
+    requirePayerSignature: options.requirePayerSignature ?? false,
     cacheTtlSeconds: resolved.cacheTtlSeconds,
     maxOracleAgeMs: resolved.maxOracleAgeMs,
     metrics,
@@ -783,6 +784,19 @@ export async function createOracleApp(
       return;
     }
 
+    const payerSignature =
+      typeof body.payerSignature === 'string'
+        ? body.payerSignature
+        : typeof body.payer_signature === 'string'
+          ? body.payer_signature
+          : undefined;
+    const canonicalPayload =
+      typeof body.canonicalPayload === 'string'
+        ? body.canonicalPayload
+        : typeof body.canonical_payload === 'string'
+          ? body.canonical_payload
+          : undefined;
+
     metrics.verificationTotal.inc();
     const start = process.hrtime.bigint();
 
@@ -795,6 +809,8 @@ export async function createOracleApp(
             payer,
             amount,
             invoiceId,
+            payerSignature,
+            canonicalPayload,
             requestId: typeof body.requestId === 'string' ? body.requestId : undefined,
             forceRefresh: parseVerifiedBoolean(body.forceRefresh),
             maxOracleAgeMs:
@@ -1015,3 +1031,16 @@ export type {
   PayerAuthorizationFailureCategory,
   PayerAuthorizationFailureCode,
 } from './authorization';
+export {
+  CANONICAL_PAYLOAD_PREFIX,
+  buildCanonicalInvoicePayload,
+  verifyPayerSignature,
+  checkPayerSubstitution,
+} from './canonicalPayload';
+export type {
+  CanonicalInvoicePayloadParams,
+  VerifyPayerSignatureParams,
+  VerifyPayerSignatureResult,
+  CheckPayerSubstitutionParams,
+  CheckPayerSubstitutionResult,
+} from './canonicalPayload';

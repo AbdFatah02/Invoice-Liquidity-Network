@@ -56,7 +56,7 @@ function verifier(overrides: Partial<ConstructorParameters<typeof OracleVerifier
 describe('taxonomy table', () => {
   it('defines a category, status and retry hint for every code', () => {
     expect(PAYER_AUTHORIZATION_TAXONOMY_VERSION).toBe('payer-authz-v1');
-    expect(PAYER_AUTHORIZATION_FAILURE_CODES).toHaveLength(12);
+    expect(PAYER_AUTHORIZATION_FAILURE_CODES).toHaveLength(14);
     for (const code of PAYER_AUTHORIZATION_FAILURE_CODES) {
       const def = PAYER_AUTHORIZATION_FAILURES[code];
       expect(['request', 'policy', 'freshness', 'dependency', 'internal']).toContain(def.category);
@@ -137,6 +137,30 @@ describe('classifyPayerVerdict', () => {
   it('never classifies an unexplained denial as an allow', () => {
     const decision = classifyPayerVerdict(makeResponse({ isVerified: false }));
     expect(decision).toMatchObject({ decision: 'deny', primary: 'PAYER_LOW_TRUST' });
+  });
+
+  it('classifies payer substitution rejections as PAYER_SUBSTITUTION_REJECTED', () => {
+    const decision = classifyPayerVerdict(
+      makeResponse({
+        isVerified: false,
+        fraudSignals: ['Payer substitution rejected: invoice 42 bound to GD... cannot substitute GB...'],
+      })
+    );
+    expect(decision.decision).toBe('deny');
+    expect(decision.primary).toBe('PAYER_SUBSTITUTION_REJECTED');
+    expect(decision.failures.map((f) => f.code)).toContain('PAYER_SUBSTITUTION_REJECTED');
+  });
+
+  it('classifies payer signature failures as PAYER_SIGNATURE_INVALID', () => {
+    const decision = classifyPayerVerdict(
+      makeResponse({
+        isVerified: false,
+        fraudSignals: ['Payer signature invalid: Cryptographic signature does not match canonical payload'],
+      })
+    );
+    expect(decision.decision).toBe('deny');
+    expect(decision.primary).toBe('PAYER_SIGNATURE_INVALID');
+    expect(decision.failures.map((f) => f.code)).toContain('PAYER_SIGNATURE_INVALID');
   });
 });
 
