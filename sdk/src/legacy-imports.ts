@@ -14,15 +14,9 @@ export * from './index';
 export { ILNSdk } from './client';
 
 // Re-export shared types that may have been imported directly in legacy code
-export type { Invoice } from './types';
+export type { Invoice, NetworkConfig, TransactionSigner } from './types';
 export type { ValidationResult } from './amounts';
-export type { SignerConfig } from './signers';
 export type { ILNError } from './errors';
 
 // Legacy configuration exports
-export {
-  ILN_TESTNET,
-  ILN_MAINNET,
-  ILN_STANDALONE,
-  type ServerConfig,
-} from './types';
+export { ILN_TESTNET } from './signers';

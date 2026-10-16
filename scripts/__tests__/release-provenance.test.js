@@ -135,7 +135,7 @@ test('npm publish is gated on provenance generation in both release workflows', 
       .map((line) => line.trim())
       .filter((line) => line.startsWith('needs:'));
     assert.ok(
-      needsLines.some((line) => /^\[.*provenance.*\]$/.test(line)),
+      needsLines.some((line) => /^needs:\s*\[.*provenance.*\]$/.test(line)),
       `${file} must gate its publish job with "needs: [..., provenance]" so a ` +
         'provenance failure blocks the release (issue #1077).',
     );

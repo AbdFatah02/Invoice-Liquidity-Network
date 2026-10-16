@@ -30,6 +30,7 @@ import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { checkSdkClientDrift } from './check-sdk-client-drift.mjs';
 import { checkExampleSdkResolution } from './check-example-sdk-resolution.mjs';
+import { checkSdkSupportWindows } from './check-sdk-support-windows.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, '..');
@@ -134,6 +135,16 @@ const GATES = [
       return report.findings.length === 0;
     },
     message: 'Examples must resolve canonical @iln/sdk package and exports contract',
+    severity: 'error',
+  },
+  {
+    name: 'SDK Support Windows',
+    check: () => {
+      const report = checkSdkSupportWindows(ROOT);
+      return report.findings.length === 0;
+    },
+    message:
+      'Every SDK surface must declare a valid support window (docs/sdk-support-windows.json)',
     severity: 'error',
   },
 ];

@@ -1,0 +1,48 @@
+{
+  "schemaVersion": 1,
+  "description": "Machine-readable SDK versioning and support-window policy for every SDK surface. Validated by scripts/check-sdk-support-windows.mjs, which fails CI when a published version drifts from its declared support window or the documentation does not describe it. See docs/sdk-versioning.md and docs/runbooks/sdk-support-windows.md.",
+  "policy": {
+    "documentedIn": "docs/sdk-versioning.md",
+    "runbook": "docs/runbooks/sdk-support-windows.md",
+    "currentStable": "@iln/sdk",
+    "supportModel": "current minor plus the previous minor",
+    "releaseCadence": "on-demand",
+    "deprecationNoticeDays": 90,
+    "minimumSupportedNode": ">=20"
+  },
+  "surfaces": [
+    {
+      "package": "@iln/sdk",
+      "directory": "sdk",
+      "version": "0.1.0",
+      "channel": "stable",
+      "status": "active",
+      "introduced": "2025-06-01",
+      "eol": null,
+      "owner": "@iln/sdk maintainers",
+      "runbook": "docs/runbooks/sdk-support-windows.md"
+    },
+    {
+      "package": "@iln/sdk-next",
+      "directory": "packages/sdk",
+      "version": "0.1.0",
+      "channel": "experimental",
+      "status": "active",
+      "introduced": "2025-06-01",
+      "eol": "2026-12-31",
+      "owner": "@iln/sdk-next maintainers",
+      "runbook": "docs/runbooks/sdk-support-windows.md"
+    },
+    {
+      "package": "@iln/react",
+      "directory": "packages/react",
+      "version": "0.1.0",
+      "channel": "stable",
+      "status": "active",
+      "introduced": "2025-06-01",
+      "eol": null,
+      "owner": "@iln/react maintainers",
+      "runbook": "docs/runbooks/sdk-support-windows.md"
+    }
+  ]
+}

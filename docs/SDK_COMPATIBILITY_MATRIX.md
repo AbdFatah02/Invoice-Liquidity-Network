@@ -22,13 +22,13 @@ This matrix documents supported combinations of ILN SDK packages and their peer 
 
 | Package Version | @iln/sdk | @tanstack/react-query | React | Status |
 |----------------|----------|----------------------|-------|--------|
-| 0.1.0 | 0.1.0 (exact) | ^5.62.0 | ^19.0.0 | ✅ Supported |
-| 0.1.0 | 0.1.0 (exact) | ^5.62.0 | ^18.0.0 | ⚠️  Not Tested |
+| 0.1.0 | ^0.1.0 | ^5.62.0 | ^19.0.0 | ✅ Supported |
+| 0.1.0 | ^0.1.0 | ^5.62.0 | ^18.0.0 | ⚠️  Not Tested |
 
 ## Breaking Changes
 
 ### Version 0.1.0
-- Initial release with exact peer dependency requirements
+- Initial release; `@iln/react` declares `@iln/sdk@^0.1.0` as a peer
 - React 19 required for @iln/react
 - Node.js 20+ required for all packages
 
@@ -91,7 +91,7 @@ pnpm run lint
 
 If you encounter peer dependency warnings:
 
-1. **Check exact versions**: `@iln/react` requires `@iln/sdk@0.1.0` exactly
+1. **Check peer ranges**: `@iln/react` requires `@iln/sdk@^0.1.0` and `react@^19.0.0`
 2. **Update package manager**: Use `pnpm` for better peer dependency resolution
 3. **Clear cache**: `pnpm store prune && rm -rf node_modules`
 
