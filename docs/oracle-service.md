@@ -479,6 +479,9 @@ The oracle exposes Prometheus metrics on `/metrics`:
 - `cache_hits_total` — Cache hits
 - `cache_misses_total` — Cache misses
 - `stale_responses_total` — Responses older than maxOracleAgeMs
+- `oracle_kyb_provenance_total{provider,status,source}` — KYB observations recorded on published verdicts (#1236)
+- `oracle_kyb_revalidations_total{reason}` — Cached KYB decisions discarded for revalidation after expiry (#1237)
+- `oracle_kyb_config_info{provider,required,decision_ttl_ms}` — Constant 1 labelled with the loaded KYB wiring; proof the boot control is armed (#1235)
 
 ## Configuration
 
@@ -508,6 +511,7 @@ The oracle exposes Prometheus metrics on `/metrics`:
 | `ORACLE_AUDIT_KEY` | (dev key) | HMAC key for the audit chain; must be set in production |
 | `ORACLE_AUDIT_DRIVER` | `sqlite` when a path is set, else `memory` | Audit persistence driver |
 | `ORACLE_AUDIT_DB_PATH` | (unset) | SQLite file for the audit trail; required in production |
+| `ORACLE_KYB_DECISION_TTL_MS` | 86400000 | How long a recorded KYB decision may be replayed from cache before revalidation (24h; #1237) |
 
 ## Integration with Trust & Liquidity Model
 
@@ -550,6 +554,8 @@ export interface KYBVerificationResult {
 
 export interface VerificationProvider {
   name: string;
+  /** Set by reference/mock adapters so production wiring can refuse them (#1234). */
+  isMock?: boolean;
   verifyPayer(
     payerAddress: string,
     metadata?: Record<string, unknown>
@@ -562,6 +568,38 @@ export interface VerificationProvider {
 - When assessing a verification request, `OracleVerifier` executes the external KYB check in parallel with indexer history and Soroban reputation RPC calls via `Promise.allSettled()`.
 - If the external KYB provider returns `isVerified: false`, the oracle rejects verification (`isVerified: false`), adds a fraud signal (`External KYB provider verification failed or unverified`), and records the provider's diagnostic signals into the evidence log.
 - A reference implementation is provided in `oracle-service/src/kyb/mockProvider.ts` (`MockKYBProvider`), allowing seamless local testing and straightforward production adapter implementations for external vendors (e.g., Middesk, Sumsub, Trulioo).
+
+#### Production Wiring, Provenance and Decision Expiry (#1234–#1237)
+
+Three boot-time and publication-time controls keep the KYB gate honest:
+
+1. **Explicit configuration at startup (#1235).** With `NODE_ENV=production`, the
+   service refuses to boot unless `options.kybProvider` names a live adapter and
+   `requireKyb` is not disabled — the same fail-at-boot posture as
+   `ORACLE_SIGNING_KEY`. The loaded wiring is published on `/health` (`kyb:
+   { configured, provider, required, decisionTtlMs }`), as a boot log line
+   (`oracle.kyb.configured`), and as the constant-1 gauge
+   `oracle_kyb_config_info` on `/metrics`.
+2. **No mock in production (#1234).** Production also refuses any adapter whose
+   `isMock` flag is set — which includes `MockKYBProvider` under any name — so a
+   fixture adapter can never be wired into a production verdict path. Non-production
+   deployments may keep using the mock for fixtures, as before.
+3. **Decision provenance and expiry (#1236/#1237).** Every published verdict
+   carries a `kybProvenance` block — `{ provider, status, source, checkedAt, ageMs }` —
+   recording who checked the payer, what they concluded (`verified` / `unverified` /
+   `unavailable` / `not-configured`), the instant of the decision, and whether this
+   publication fetched it live or replayed it from cache. A recorded decision may be
+   replayed for at most `ORACLE_KYB_DECISION_TTL_MS` (default 24h); after that the
+   cached verdict is discarded and the provider is re-called
+   (`oracle_kyb_revalidations_total`), including across process restarts. A decision
+   that cannot be dated is treated as expired. `requireKyb: true` deployments were
+   already cache-bypassing and are unaffected.
+
+**Recovery path:** if the service fails to boot with a KYB wiring error, set the
+live adapter via `options.kybProvider` (and leave `requireKyb` enabled) rather than
+silencing the check; if `oracle_kyb_revalidations_total` climbs, the provider is
+being re-called more often than the TTL allows — check provider latency and the
+configured TTL. Owner: oracle-service maintainers.
 
 ### Use in fund_invoice()
 

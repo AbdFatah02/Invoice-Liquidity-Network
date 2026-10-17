@@ -89,6 +89,12 @@ export interface OracleMetrics {
   payerAuthorizationFailuresTotal: client.Counter<string>;
   /** Constant 1 labelled with the active taxonomy version — proof the control is loaded. */
   payerAuthorizationTaxonomyInfo: client.Gauge<string>;
+  /** KYB observations recorded on published verdicts (#1236). */
+  kybProvenanceTotal: client.Counter<string>;
+  /** Cached KYB decisions discarded and re-fetched because they outlived the TTL (#1237). */
+  kybRevalidationsTotal: client.Counter<string>;
+  /** Constant 1 labelled with the loaded KYB wiring — proof the control is active (#1235). */
+  kybConfigInfo: client.Gauge<string>;
   /** Record one verdict against the outcome, fraud and ratio metrics. */
   recordVerificationOutcome(result: VerificationOutcomeSample): void;
   /** Record one payer check's authorization result against the taxonomy metrics. */
@@ -316,6 +322,27 @@ export function createOracleMetrics(): OracleMetrics {
   });
   payerAuthorizationTaxonomyInfo.set({ version: PAYER_AUTHORIZATION_TAXONOMY_VERSION }, 1);
 
+  const kybProvenanceTotal = new client.Counter({
+    name: 'oracle_kyb_provenance_total',
+    help: 'KYB observations recorded on published verdicts, by provider, status and source',
+    labelNames: ['provider', 'status', 'source'] as const,
+    registers: [registry],
+  });
+
+  const kybRevalidationsTotal = new client.Counter({
+    name: 'oracle_kyb_revalidations_total',
+    help: 'Cached KYB decisions discarded and re-fetched because they outlived the decision TTL',
+    labelNames: ['reason'] as const,
+    registers: [registry],
+  });
+
+  const kybConfigInfo = new client.Gauge({
+    name: 'oracle_kyb_config_info',
+    help: 'Loaded KYB configuration (always 1): provider identity, requirement flag and decision TTL',
+    labelNames: ['provider', 'required', 'decision_ttl_ms'] as const,
+    registers: [registry],
+  });
+
   function recordPayerAuthorization(sample: PayerAuthorizationSample): void {
     payerAuthorizationDecisionsTotal.inc({
       decision: sample.codes.length === 0 ? 'allow' : 'deny',
@@ -406,6 +433,9 @@ export function createOracleMetrics(): OracleMetrics {
     payerAuthorizationDecisionsTotal,
     payerAuthorizationFailuresTotal,
     payerAuthorizationTaxonomyInfo,
+    kybProvenanceTotal,
+    kybRevalidationsTotal,
+    kybConfigInfo,
     recordVerificationOutcome: wrappedRecordVerificationOutcome,
     recordPayerAuthorization,
   };

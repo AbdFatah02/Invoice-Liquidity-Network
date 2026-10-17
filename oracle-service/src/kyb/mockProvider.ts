@@ -24,6 +24,12 @@ export interface MockKYBProviderOptions {
  * business entity verification integration alongside in-house fraud heuristics.
  */
 export class MockKYBProvider implements VerificationProvider {
+  /**
+   * Marks this adapter as a fixture. Production wiring refuses any provider
+   * carrying this flag (issue #1234), so the marker travels with the instance
+   * however it was constructed — including with a custom `name`.
+   */
+  public readonly isMock = true;
   public readonly name: string;
   private readonly defaultVerified: boolean;
   private readonly defaultJurisdiction: string;

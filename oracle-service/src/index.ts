@@ -31,9 +31,11 @@ import {
   type OracleVerificationRequest,
   type OracleVerificationResponse,
   type ReputationSnapshot,
+  type VerificationProvider,
 } from './types';
 import {
   OracleVerifier,
+  DEFAULT_KYB_DECISION_TTL_MS,
   fetchOnChainReputation,
   fetchOnChainReputationOrThrow,
   OracleUnavailableError,
@@ -256,6 +258,60 @@ function resolveSigningKeyStore(
     return null;
   }
   return createSigningKeyStore();
+}
+
+/** Resolved KYB wiring, validated once at boot. */
+interface ResolvedKybConfig {
+  kybProvider?: VerificationProvider;
+  requireKyb: boolean;
+  kybDecisionTtlMs: number;
+}
+
+/**
+ * Resolve KYB configuration and enforce the production wiring rules (#1234,
+ * #1235, #1237).
+ *
+ * Production must name a real provider and must require it: an unset or mock
+ * adapter can silently turn the blocking KYB gate into a rubber stamp, so —
+ * like the signing key — misconfiguration fails at boot rather than on the
+ * first request. The decision TTL bounds how long a recorded KYB decision may
+ * be replayed from cache before it is revalidated against the provider.
+ */
+function resolveKybConfig(options: Partial<OracleServiceOptions>): ResolvedKybConfig {
+  const kybProvider = options.kybProvider;
+  const requireKyb = options.requireKyb ?? process.env.NODE_ENV === 'production';
+  const kybDecisionTtlMs =
+    options.kybDecisionTtlMs ??
+    Number(process.env.ORACLE_KYB_DECISION_TTL_MS ?? DEFAULT_KYB_DECISION_TTL_MS);
+
+  if (!Number.isFinite(kybDecisionTtlMs) || kybDecisionTtlMs <= 0) {
+    throw new Error(
+      'oracle-service refuses to start: the KYB decision TTL must be a positive ' +
+        'number of milliseconds (set ORACLE_KYB_DECISION_TTL_MS or the kybDecisionTtlMs option)'
+    );
+  }
+
+  if (process.env.NODE_ENV === 'production') {
+    if (!kybProvider) {
+      throw new Error(
+        'oracle-service refuses to start in production without an explicit KYB provider: ' +
+          'wire options.kybProvider with a live adapter (#1235)'
+      );
+    }
+    if (kybProvider.isMock) {
+      throw new Error(
+        `oracle-service refuses to start in production with mock KYB provider "${kybProvider.name}" (#1234)`
+      );
+    }
+    if (!requireKyb) {
+      throw new Error(
+        'oracle-service refuses to start in production with requireKyb disabled: ' +
+          'a live KYB result is a required onboarding control (#1235)'
+      );
+    }
+  }
+
+  return { kybProvider, requireKyb, kybDecisionTtlMs };
 }
 
 /**
@@ -539,20 +595,6 @@ export async function createOracleApp(
     ));
   const reputationProvider =
     options.reputationProvider ?? (await createReputationProvider(resolved, sourceTracker));
-  const verifier = new OracleVerifier({
-    cache: cache.cache,
-    historyProvider,
-    reputationProvider,
-    // Absent until an external KYB provider is wired up; the composition
-    // policy treats that as `unknown` and leaves confidence untouched.
-    externalProvider: options.externalProvider,
-    kybProvider: options.kybProvider,
-    requireKyb: options.requireKyb ?? process.env.NODE_ENV === 'production',
-    requirePayerSignature: options.requirePayerSignature ?? false,
-    cacheTtlSeconds: resolved.cacheTtlSeconds,
-    maxOracleAgeMs: resolved.maxOracleAgeMs,
-    metrics,
-  });
 
   // Issues #1053 and #1055: a published verdict has to be attributable (an
   // attestation the caller can verify without trusting the transport) and it
@@ -564,6 +606,46 @@ export async function createOracleApp(
     retentionMs: options.auditRetentionMs ?? DEFAULT_AUDIT_RETENTION_MS,
   });
   const signerStore = resolveSigningKeyStore(options);
+
+  // Issues #1234/#1235: production wiring is validated at boot, next to the
+  // signing-key check, so a missing or mock KYB adapter fails startup rather
+  // than leaving the blocking gate (#868) quietly unarmed. The resolved TTL
+  // (#1237) bounds how long recorded KYB decisions stay replayable from cache.
+  const kyb = resolveKybConfig(options);
+  // Operator-visible proof of the loaded control: one boot log line plus a
+  // constant-1 gauge readable from /metrics before the first request lands.
+  console.log(
+    JSON.stringify({
+      event: 'oracle.kyb.configured',
+      provider: kyb.kybProvider?.name ?? null,
+      required: kyb.requireKyb,
+      decisionTtlMs: kyb.kybDecisionTtlMs,
+    })
+  );
+  metrics.kybConfigInfo.set(
+    {
+      provider: kyb.kybProvider?.name ?? 'none',
+      required: String(kyb.requireKyb),
+      decision_ttl_ms: String(kyb.kybDecisionTtlMs),
+    },
+    1
+  );
+
+  const verifier = new OracleVerifier({
+    cache: cache.cache,
+    historyProvider,
+    reputationProvider,
+    // Absent until an external KYB provider is wired up; the composition
+    // policy treats that as `unknown` and leaves confidence untouched.
+    externalProvider: options.externalProvider,
+    kybProvider: kyb.kybProvider,
+    requireKyb: kyb.requireKyb,
+    kybDecisionTtlMs: kyb.kybDecisionTtlMs,
+    requirePayerSignature: options.requirePayerSignature ?? false,
+    cacheTtlSeconds: resolved.cacheTtlSeconds,
+    maxOracleAgeMs: resolved.maxOracleAgeMs,
+    metrics,
+  });
 
   // Retention is a privacy obligation rather than a cleanup convenience:
   // `docs/privacy.md` §4 caps oracle attestation logs at one year. Enforced at
@@ -948,6 +1030,14 @@ export async function createOracleApp(
       lastVerificationAt,
       signing: signerStore ? 'enabled' : 'disabled',
       audit: auditStore.kind,
+      // #1234/#1235/#1237: the loaded KYB wiring, so an operator can confirm
+      // the control is armed without reading the deployment manifest.
+      kyb: {
+        configured: Boolean(kyb.kybProvider),
+        provider: kyb.kybProvider?.name ?? null,
+        required: kyb.requireKyb,
+        decisionTtlMs: kyb.kybDecisionTtlMs,
+      },
       degradedMode: degradedResponses > 0,
       degradedResponses,
       lastSuccessfulVerificationAt,
@@ -1000,6 +1090,7 @@ if (shouldAutostart) {
 export type {
   ExternalVerificationProvider,
   ExternalVerificationResult,
+  KYBProvenance,
   KYBVerificationResult,
   IndexerInvoiceHistoryEntry,
   OracleServiceOptions,
@@ -1016,6 +1107,7 @@ export {
   normalizeAmountToNumber,
   normalizeTimestampToMs,
   fetchOnChainReputation,
+  DEFAULT_KYB_DECISION_TTL_MS,
 } from './verifier';
 export { MockKYBProvider } from './kyb/mockProvider';
 export {

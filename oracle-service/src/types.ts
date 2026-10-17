@@ -54,10 +54,38 @@ export interface KYBVerificationResult {
 
 export interface VerificationProvider {
   name: string;
+  /**
+   * Set by reference/mock adapters so production wiring can refuse them by
+   * identity rather than by name string (issue #1234). Optional so existing
+   * production adapters keep compiling.
+   */
+  isMock?: boolean;
   verifyPayer(
     payerAddress: string,
     metadata?: Record<string, unknown>
   ): Promise<KYBVerificationResult>;
+}
+
+/**
+ * Provenance of the KYB observation a published verdict rests on (issue #1236).
+ *
+ * Recorded on every publication — including `not-configured` — so an auditor
+ * can always answer *who* checked the payer, *when*, and whether the observation
+ * was fetched live or replayed from cache. `checkedAt` is the instant of the
+ * provider decision, never the replay time, which is what lets the decision
+ * expiry control (#1237) be evaluated from the response alone.
+ */
+export interface KYBProvenance {
+  /** Adapter identity, or `not-configured` when no provider is wired. */
+  provider: string;
+  /** Outcome of the observation; `unavailable` means the provider did not answer. */
+  status: 'verified' | 'unverified' | 'unavailable' | 'not-configured';
+  /** `live` for a fresh provider call, `cache` for a replayed observation. */
+  source: 'live' | 'cache';
+  /** ISO-8601 instant of the provider check this verdict rests on. */
+  checkedAt: string;
+  /** Age of that check at publication time, in milliseconds. */
+  ageMs: number;
 }
 
 export type OracleConfidenceLevel = 'low' | 'medium' | 'high';
@@ -175,6 +203,12 @@ export interface OracleVerificationResponse {
   deltaGuard?: OracleDeltaGuardInfo;
   kybResult?: KYBVerificationResult;
   /**
+   * Where the KYB observation behind this publication came from (#1236).
+   * Present on every verdict; `status: 'not-configured'` records the explicit
+   * absence of a provider rather than leaving the field blank.
+   */
+  kybProvenance?: KYBProvenance;
+  /**
    * HMAC attestation of *this publication*, attached by the HTTP layer when a
    * signing key is configured (#1053).
    *
@@ -253,6 +287,17 @@ export interface OracleServiceHealth {
    */
   signing: 'enabled' | 'disabled';
   audit: 'sqlite' | 'memory';
+  /**
+   * KYB wiring as loaded at boot (#1234/#1235) and the decision TTL that cache
+   * replays are bounded by (#1237). Surfaced so operators can confirm the
+   * control is active without reading the deployment manifest.
+   */
+  kyb: {
+    configured: boolean;
+    provider: string | null;
+    required: boolean;
+    decisionTtlMs: number;
+  };
   /** Issue #1057: true once the service has served a degraded response. */
   degradedMode: boolean;
   degradedResponses?: number;
@@ -279,6 +324,11 @@ export interface OracleVerifierDependencies {
   kybProvider?: VerificationProvider;
   /** Require a successful live KYB check before publishing a positive verdict. */
   requireKyb?: boolean;
+  /**
+   * How long a recorded KYB decision may be replayed from cache before it is
+   * revalidated (issue #1237). Defaults to 24 hours.
+   */
+  kybDecisionTtlMs?: number;
   /** Require a valid cryptographic payer signature before publishing a positive verdict (Issue #1228). */
   requirePayerSignature?: boolean;
   cache?: OracleCacheReaderWriter;
@@ -327,6 +377,11 @@ export interface OracleServiceOptions {
   kybProvider?: VerificationProvider;
   /** Require a successful live KYB check before publishing a positive verdict. */
   requireKyb?: boolean;
+  /**
+   * How long a recorded KYB decision may be replayed from cache before it is
+   * revalidated (issue #1237). Defaults to `ORACLE_KYB_DECISION_TTL_MS` or 24h.
+   */
+  kybDecisionTtlMs?: number;
   /** Require a valid cryptographic payer signature before publishing a positive verdict (Issue #1228). */
   requirePayerSignature?: boolean;
   rateLimitWindowMs?: number;
