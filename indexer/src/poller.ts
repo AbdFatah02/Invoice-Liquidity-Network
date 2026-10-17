@@ -54,12 +54,14 @@ export async function pollOnce(): Promise<void> {
     const response = await server.getEvents(request);
     latestKnownLedger = response.latestLedger;
 
+    const MAX_REORG_ROLLBACK_LEDGERS = 100;
     if (latestKnownLedger < stored) {
-      console.warn(`[poller] Chain reorg detected! Latest ledger (${latestKnownLedger}) is behind cursor (${stored}). Rolling back...`);
-      rollbackToLedger(latestKnownLedger);
-      stored = latestKnownLedger;
-      startLedger = latestKnownLedger;
-      highestEventLedger = latestKnownLedger;
+      const boundedRollbackLedger = Math.max(stored - MAX_REORG_ROLLBACK_LEDGERS, latestKnownLedger);
+      console.warn(`[poller] Chain reorg detected! Latest ledger (${latestKnownLedger}) is behind cursor (${stored}). Rolling back to bounded ledger ${boundedRollbackLedger}...`);
+      rollbackToLedger(boundedRollbackLedger);
+      stored = boundedRollbackLedger;
+      startLedger = boundedRollbackLedger;
+      highestEventLedger = boundedRollbackLedger;
       paginationCursor = undefined;
       continue;
     }
