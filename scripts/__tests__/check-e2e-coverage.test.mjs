@@ -8,6 +8,8 @@ import {
   evaluateCoverage,
   findPlaceholderContractIds,
   REQUIRED_E2E_FILES,
+  resolveSkipBudget,
+  buildEvidence,
 } from '../check-e2e-coverage.mjs';
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -65,6 +67,88 @@ describe('evaluateCoverage — success path', () => {
 
     assert.equal(evaluateCoverage(report(spec), { repoRoot: REPO_ROOT, allowSkips: 0 }).ok, false);
     assert.equal(evaluateCoverage(report(spec), { repoRoot: REPO_ROOT, allowSkips: 1 }).ok, true);
+  });
+});
+
+describe('resolveSkipBudget — protected branches (#1246)', () => {
+  const config = {
+    protectedBranches: ['main', 'dev'],
+    budgets: { main: 0, dev: 1 },
+    defaultBudget: 2,
+  };
+
+  it('loads the explicit budget for every protected branch', () => {
+    assert.deepEqual(resolveSkipBudget(config, 'refs/heads/main'), {
+      branch: 'main',
+      budget: 0,
+      protected: true,
+    });
+    assert.deepEqual(resolveSkipBudget(config, 'dev'), {
+      branch: 'dev',
+      budget: 1,
+      protected: true,
+    });
+  });
+
+  it('fails closed when a newly protected branch has no budget', () => {
+    assert.throws(
+      () =>
+        resolveSkipBudget(
+          { ...config, protectedBranches: [...config.protectedBranches, 'release'] },
+          'release'
+        ),
+      /has no explicit skip budget/
+    );
+  });
+
+  it('uses the default budget for an unprotected replay branch', () => {
+    assert.deepEqual(resolveSkipBudget(config, 'feature/replay'), {
+      branch: 'feature/replay',
+      budget: 2,
+      protected: false,
+    });
+  });
+
+  it('rejects the invalid negative-budget boundary', () => {
+    assert.throws(
+      () => resolveSkipBudget({ ...config, budgets: { main: -1 } }, 'main'),
+      /non-negative integer/
+    );
+  });
+});
+
+describe('buildEvidence — skipped reasons artifact (#1247)', () => {
+  it('captures reporter reasons and prerequisite recovery records', () => {
+    const spec = greenSpec();
+    const raw = report(spec);
+    raw.testResults[0].assertionResults[0].status = 'pending';
+    raw.testResults[0].assertionResults[0].skipReason = 'RPC restart rehearsal';
+    const verdict = evaluateCoverage(raw, { repoRoot: REPO_ROOT, allowSkips: 1 });
+    verdict.policy = { branch: 'local', budget: 1, protected: false };
+    verdict.files = raw.testResults.map((entry) => ({
+      file: entry.name,
+      relative: entry.name.slice(REPO_ROOT.length + 1),
+      skipped: entry.assertionResults
+        .filter((test) => test.status === 'pending')
+        .map((test) => ({ name: test.title, reason: test.skipReason })),
+    }));
+    const evidence = buildEvidence(verdict, [
+      { prerequisite: 'stellar rpc', reason: 'connection reset' },
+    ]);
+    assert.equal(evidence.skippedTests[0].reason, 'RPC restart rehearsal');
+    assert.equal(evidence.recordedReasons[0].reason, 'connection reset');
+    assert.equal(evidence.owner, 'release engineering');
+  });
+
+  it('preserves a null reason at the missing-reason boundary instead of inventing one', () => {
+    const evidence = buildEvidence({
+      ok: false,
+      policy: {},
+      summary: {},
+      violations: [],
+      files: [{ relative: 'x.test.ts', skipped: [{ name: 'x' }] }],
+    });
+    assert.equal(evidence.skippedTests[0].reason, null);
   });
 });
 

@@ -1,0 +1,10 @@
+{
+  "$schema": "./docs/schemas/e2e-skip-budgets.schema.json",
+  "owner": "release engineering",
+  "protectedBranches": ["main", "dev"],
+  "budgets": {
+    "main": 0,
+    "dev": 0
+  },
+  "defaultBudget": 0
+}
