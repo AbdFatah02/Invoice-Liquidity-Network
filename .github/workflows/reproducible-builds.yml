@@ -1,0 +1,63 @@
+name: Reproducible Builds
+
+on:
+  push:
+    branches:
+      - main
+      - dev
+  pull_request:
+    paths:
+      - 'sdk/**'
+      - 'cli/**'
+      - 'packages/sdk/**'
+      - 'scripts/verify-reproducible-builds.mjs'
+      - 'scripts/__tests__/reproducible-builds.test.mjs'
+      - '.github/workflows/reproducible-builds.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: reproducible-builds-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Verify SDK and CLI Reproducible Builds
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@a15d269cd4658e1107c09f1fabf4cbd7bd1f308a # v4.4.0
+        with:
+          version: '9.0.0'
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Determine SOURCE_DATE_EPOCH
+        id: epoch
+        shell: bash
+        run: |
+          EPOCH="$(git log -1 --pretty=%ct)"
+          echo "epoch=$EPOCH" >> "$GITHUB_OUTPUT"
+          echo "Using SOURCE_DATE_EPOCH=$EPOCH"
+
+      - name: Verify Reproducible Builds
+        env:
+          SOURCE_DATE_EPOCH: ${{ steps.epoch.outputs.epoch }}
+        run: pnpm test:reproducible-builds
+
+      - name: Run Reproducible Builds Test Suite
+        run: node --test scripts/__tests__/reproducible-builds.test.mjs

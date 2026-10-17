@@ -1020,7 +1020,7 @@ export class OracleVerifier {
     };
 
     const kybUnavailable =
-      this.requireKyb &&
+      (this.requireKyb || this.kybProvider !== undefined) &&
       (!this.kybProvider || kybResult.status !== 'fulfilled' || !kybResult.value);
     if (kybUnavailable) {
       const rationale =
@@ -1081,7 +1081,7 @@ export class OracleVerifier {
     }
 
     const publishStart = this.now();
-    if (!this.requireKyb) {
+    if (!this.requireKyb && response.composition?.outcome !== 'rejected-kyb-unavailable') {
       await this.cache?.set(cacheKey, response, ttlSeconds);
     }
     this.observeStage('publish', this.now() - publishStart);

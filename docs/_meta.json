@@ -118,5 +118,6 @@
   "theme.config": "Theme Config",
   "bug-bounty": "Bug Bounty Program",
   "cost-attribution": "Cost Attribution",
-  "reproducible-builds": "Reproducible Builds"
+  "reproducible-builds": "Reproducible Builds",
+  "slsa-provenance": "SLSA Provenance"
 }
