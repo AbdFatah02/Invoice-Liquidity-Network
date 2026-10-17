@@ -33,7 +33,7 @@
  * Exit codes: 0 gate passed, 1 gate failed (regression detected), 2 usage error.
  */
 
-import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, extname, resolve } from 'node:path';
 
 /** Files that must contribute executed tests to every E2E run. */
@@ -53,6 +53,10 @@ function normalizeReport(report) {
     const tests = assertions.map((assertion) => ({
       name: [assertion.ancestorTitles, assertion.title].filter(Boolean).join(' > '),
       status: assertion.status,
+      reason:
+        assertion.skipReason ??
+        assertion.meta?.skipReason ??
+        (Array.isArray(assertion.failureMessages) ? assertion.failureMessages[0] : undefined),
     }));
     return {
       file: name,
@@ -252,6 +256,52 @@ export function evaluateCoverage(report, options = {}) {
   };
 }
 
+/** Resolve the versioned budget, failing closed when a protected branch is omitted. */
+export function resolveSkipBudget(config, branch) {
+  if (
+    !config ||
+    !Array.isArray(config.protectedBranches) ||
+    !config.budgets ||
+    typeof config.budgets !== 'object'
+  ) {
+    throw new Error('skip budget config must define protectedBranches[] and budgets{}');
+  }
+  const normalized = String(branch || '').replace(/^refs\/heads\//, '');
+  if (!normalized) throw new Error('branch is required to enforce protected-branch skip budgets');
+  const protectedBranch = config.protectedBranches.includes(normalized);
+  if (protectedBranch && !Object.hasOwn(config.budgets, normalized)) {
+    throw new Error(`protected branch "${normalized}" has no explicit skip budget`);
+  }
+  const budget = Object.hasOwn(config.budgets, normalized)
+    ? config.budgets[normalized]
+    : config.defaultBudget;
+  if (!Number.isInteger(budget) || budget < 0) {
+    throw new Error(`skip budget for branch "${normalized}" must be a non-negative integer`);
+  }
+  return { branch: normalized, budget, protected: protectedBranch };
+}
+
+export function buildEvidence(verdict, recordedReasons = []) {
+  return {
+    control: 'e2e-skip-budget',
+    owner: 'release engineering',
+    recovery: 'docs/runbooks/e2e-prerequisites.md',
+    generatedAt: new Date().toISOString(),
+    policy: verdict.policy,
+    summary: verdict.summary,
+    ok: verdict.ok,
+    violations: verdict.violations,
+    skippedTests: verdict.files.flatMap((file) =>
+      file.skipped.map((test) => ({
+        file: file.relative,
+        name: test.name,
+        reason: test.reason ?? null,
+      }))
+    ),
+    recordedReasons,
+  };
+}
+
 function parseArgs(argv) {
   const options = {
     report: null,
@@ -260,10 +310,19 @@ function parseArgs(argv) {
     allowSkipEscapeHatch: false,
     scanSources: false,
     sourceOnly: false,
+    branch: null,
+    budgets: null,
+    evidence: null,
+    skipReasons: null,
   };
 
   for (const arg of argv) {
     if (arg.startsWith('--report=')) options.report = arg.slice('--report='.length);
+    else if (arg.startsWith('--branch=')) options.branch = arg.slice('--branch='.length);
+    else if (arg.startsWith('--budgets=')) options.budgets = arg.slice('--budgets='.length);
+    else if (arg.startsWith('--evidence=')) options.evidence = arg.slice('--evidence='.length);
+    else if (arg.startsWith('--skip-reasons='))
+      options.skipReasons = arg.slice('--skip-reasons='.length);
     else if (arg.startsWith('--allow-skips='))
       options.allowSkips = Number(arg.slice('--allow-skips='.length));
     else if (arg === '--json') options.json = true;
@@ -312,6 +371,7 @@ function main(argv) {
   if (options.help) {
     console.log(
       'usage: node scripts/check-e2e-coverage.mjs --report=<vitest json> [--allow-skips=N] [--json]\n' +
+        '       ... --budgets=e2e-skip-budgets.json --branch=<protected branch>\n' +
         '       node scripts/check-e2e-coverage.mjs --source-scan-only'
     );
     return 0;
@@ -350,19 +410,74 @@ function main(argv) {
     return 1;
   }
 
+  let branchPolicy;
+  if (options.budgets) {
+    try {
+      const config = JSON.parse(readFileSync(resolve(process.cwd(), options.budgets), 'utf8'));
+      branchPolicy = resolveSkipBudget(
+        config,
+        options.branch || process.env.GITHUB_BASE_REF || process.env.GITHUB_REF_NAME
+      );
+      options.allowSkips = branchPolicy.budget;
+    } catch (error) {
+      console.error(`✗ Could not enforce protected-branch skip budget: ${error.message}`);
+      return 1;
+    }
+  }
+
   const verdict = evaluateCoverage(report, {
     allowSkips: options.allowSkips,
     skipEscapeHatchSet: Boolean(process.env.E2E_ALLOW_SKIP),
     allowSkipEscapeHatch: options.allowSkipEscapeHatch,
     success: report.success !== false,
   });
+  verdict.policy = branchPolicy ?? {
+    branch: options.branch ?? 'local',
+    budget: options.allowSkips,
+    protected: false,
+  };
+  // Retained for the evidence artifact, but kept out of the console-oriented summary.
+  verdict.files = normalizeReport(report).map((file) => ({
+    ...file,
+    relative: relativeToRepo(file.file, process.cwd()),
+  }));
+  const recordedReasons = [];
+  if (options.skipReasons && existsSync(options.skipReasons)) {
+    for (const line of readFileSync(options.skipReasons, 'utf8').split('\n').filter(Boolean)) {
+      try {
+        recordedReasons.push(JSON.parse(line));
+      } catch {
+        recordedReasons.push({ reason: `Unparseable skip reason record: ${line}` });
+      }
+    }
+  }
+  if (
+    verdict.summary.skipped > 0 &&
+    recordedReasons.length === 0 &&
+    verdict.files.flatMap((file) => file.skipped).every((test) => !test.reason)
+  ) {
+    verdict.violations.push({
+      code: 'missing-skip-reason',
+      detail: 'skipped tests have no reporter reason or E2E_SKIP_REASONS_FILE record',
+    });
+    verdict.ok = false;
+  }
+  if (options.evidence) {
+    const evidencePath = resolve(process.cwd(), options.evidence);
+    mkdirSync(dirname(evidencePath), { recursive: true });
+    writeFileSync(
+      evidencePath,
+      `${JSON.stringify(buildEvidence(verdict, recordedReasons), null, 2)}\n`
+    );
+  }
 
   if (options.json) {
     console.log(JSON.stringify(verdict, null, 2));
   } else if (verdict.ok) {
     console.log(
       `✓ E2E coverage gate passed: ${verdict.summary.tests} tests across ${verdict.summary.files} ` +
-        `file(s), 0 skipped (owner: release engineering — see docs/runbooks/e2e-prerequisites.md).`
+        `file(s), ${verdict.summary.skipped} skipped (budget ${verdict.policy.budget} on ` +
+        `${verdict.policy.branch}; owner: release engineering — see docs/runbooks/e2e-prerequisites.md).`
     );
   } else {
     console.error(

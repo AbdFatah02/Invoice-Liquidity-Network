@@ -1,4 +1,7 @@
 import { describe, it, expect, afterEach } from 'vitest';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import {
   E2EPrerequisiteError,
   isPlaceholderContractId,
@@ -158,6 +161,26 @@ describe('E2E prerequisite control', () => {
       const status = await evaluatePrerequisites(failing);
       expect(status.ok).toBe(false);
       expect(status.skip).toBe(true);
+    });
+
+    it('records the prerequisite cause and recovery path for the CI artifact', async () => {
+      const directory = mkdtempSync(join(tmpdir(), 'iln-e2e-skip-reason-'));
+      try {
+        process.env.E2E_ALLOW_SKIP = '1';
+        process.env.E2E_SKIP_REASONS_FILE = join(directory, 'reasons.jsonl');
+
+        await evaluatePrerequisites(failing);
+        const [record] = readFileSync(process.env.E2E_SKIP_REASONS_FILE, 'utf8')
+          .trim()
+          .split('\n')
+          .map((line) => JSON.parse(line));
+
+        expect(record.prerequisite).toBe('stellar rpc');
+        expect(record.reason).toContain('down');
+        expect(record.recovery).toBe('restart the node');
+      } finally {
+        rmSync(directory, { recursive: true, force: true });
+      }
     });
 
     it('never swallows a non-prerequisite error, even with the hatch open', async () => {
