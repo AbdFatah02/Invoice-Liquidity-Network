@@ -232,12 +232,12 @@ Implications for indexers:
 
 | EVM concern | Stellar equivalent | Action |
 |-------------|-------------------|--------|
-| Reorg → undo state | Does not happen | No rollback logic needed |
+| Reorg / chain tip rewind | RPC node lag, desync, or validator branch switch | Reconcile cursor, rollback removed events, restore invoice state |
 | Uncle blocks | Not applicable | — |
 | Pending mempool | Transactions are PENDING until ledger close | Track status `PENDING` vs `CLOSED` |
-| Safe/finalized heads | Soroban `getLatestLedger()` is always final | Poll from latest ledger safely |
+| Safe/finalized heads | Confirmation depth policy (`CONFIRMATION_DEPTH = 10`) | Process events at confirmation depth |
 
-### Cursor-Based Polling
+### Cursor-Based Polling & Re-org Handling
 
 Persist the last processed ledger sequence in a `cursor` table to resume after restarts:
 
@@ -247,9 +247,26 @@ CREATE TABLE IF NOT EXISTS cursor (
   last_ledger  INTEGER NOT NULL DEFAULT 0,
   updated_at   INTEGER NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS fork_decisions (
+  id                INTEGER PRIMARY KEY AUTOINCREMENT,
+  detected_at       INTEGER NOT NULL,
+  from_ledger       INTEGER NOT NULL,
+  to_ledger         INTEGER NOT NULL,
+  tip_ledger        INTEGER NOT NULL,
+  status            TEXT    NOT NULL,
+  events_removed    INTEGER NOT NULL DEFAULT 0,
+  invoices_affected INTEGER NOT NULL DEFAULT 0,
+  resolved_at       INTEGER
+);
 ```
 
-On startup, query `last_ledger` and resume polling from `last_ledger + 1`. Since Stellar has no reorgs, you never need to rewind.
+#### Reorganization & Fork Replacement Guarantees
+
+1. **Tip Rewind Detection**: When `latestKnownLedger < stored`, the poller detects a chain tip rewind.
+2. **Fork Replacement Persistence**: A `fork_decisions` entry is recorded (`status: 'in_progress'`) prior to rollback for restart safety.
+3. **Removed Event Rollback**: Events with `ledger > targetLedger` are deleted. Invoices created exclusively on the abandoned fork are deleted, and invoices with prior history are restored to their last valid state (`Pending`, `Funded`, etc.).
+4. **Idempotent Replay**: Event application and invoice mutation are executed atomically within SQLite transactions (`applyEventWithInvoice`), ensuring safe replay and restart behavior without state corruption or duplication.
 
 ---
 

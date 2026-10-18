@@ -55,6 +55,25 @@ export const reorgAbortionsTotal = new Counter({
   registers: [registry],
 });
 
+export const reorgRemovedEventsTotal = new Counter({
+  name: 'iln_reorg_removed_events_total',
+  help: 'Number of contract events rolled back and removed during chain re-orgs',
+  registers: [registry],
+});
+
+export const reorgForkDecisionsTotal = new Counter({
+  name: 'iln_reorg_fork_decisions_total',
+  help: 'Total number of fork replacement decisions recorded for restart safety',
+  labelNames: ['status'] as const,
+  registers: [registry],
+});
+
+export const reorgPendingDecisions = new Gauge({
+  name: 'iln_reorg_pending_decisions',
+  help: 'Number of in-progress fork replacement decisions currently pending completion',
+  registers: [registry],
+});
+
 export const cursorUpdatedAt = new Gauge({
   name: 'iln_cursor_updated_at',
   help: 'Timestamp (ms) when cursor was last updated',

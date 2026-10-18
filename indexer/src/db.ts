@@ -6,9 +6,12 @@ import {
   cursorUpdatedAt,
   analyticsQueryDuration,
   analyticsQueryExceededBudget,
+  reorgRemovedEventsTotal,
+  reorgForkDecisionsTotal,
+  reorgPendingDecisions,
 } from './metrics';
 import { CONFIG } from './config';
-import type { ILNEvent, Invoice } from './types';
+import type { ILNEvent, Invoice, InvoiceStatus, ForkDecision } from './types';
 
 // ─── Query logging ────────────────────────────────────────────────────────────
 
@@ -139,6 +142,18 @@ function runMigrations(db: Database.Database): void {
       updated_at   INTEGER NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS fork_decisions (
+      id                INTEGER PRIMARY KEY AUTOINCREMENT,
+      detected_at       INTEGER NOT NULL,
+      from_ledger       INTEGER NOT NULL,
+      to_ledger         INTEGER NOT NULL,
+      tip_ledger        INTEGER NOT NULL,
+      status            TEXT    NOT NULL,
+      events_removed    INTEGER NOT NULL DEFAULT 0,
+      invoices_affected INTEGER NOT NULL DEFAULT 0,
+      resolved_at       INTEGER
+    );
+
     CREATE INDEX IF NOT EXISTS idx_invoices_status     ON invoices(status);
     CREATE INDEX IF NOT EXISTS idx_invoices_freelancer ON invoices(freelancer);
     CREATE INDEX IF NOT EXISTS idx_invoices_payer      ON invoices(payer);
@@ -149,6 +164,7 @@ function runMigrations(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_events_invoice_id   ON events(invoice_id);
     CREATE INDEX IF NOT EXISTS idx_events_ledger       ON events(ledger);
     CREATE INDEX IF NOT EXISTS idx_events_created_at   ON events(created_at);
+    CREATE INDEX IF NOT EXISTS idx_fork_decisions_status ON fork_decisions(status);
   `);
 }
 
@@ -575,6 +591,66 @@ export function insertEvent(event: ILNEvent): void {
     .run(event);
 }
 
+/**
+ * Atomically apply an event and invoice state in a single transaction.
+ * Ensures that partial writes never leave orphaned event or invoice rows,
+ * guaranteeing idempotency across restarts and replays (#1260).
+ */
+export function applyEventWithInvoice(
+  event: ILNEvent,
+  invoice: Omit<Invoice, 'created_at' | 'updated_at'> | null
+): { isChanged: boolean } {
+  const db = getDb();
+  let isChanged = false;
+
+  db.transaction(() => {
+    // 1. Insert event (INSERT OR IGNORE prevents duplicates)
+    db.prepare(
+      `INSERT OR IGNORE INTO events
+         (event_id, event_type, invoice_id, ledger, ledger_closed_at, created_at)
+       VALUES
+         (@event_id, @event_type, @invoice_id, @ledger, @ledger_closed_at, @created_at)`
+    ).run(event);
+
+    // 2. If invoice provided, check if changed and upsert
+    if (invoice) {
+      const existing = db
+        .prepare('SELECT status, funder FROM invoices WHERE id = ?')
+        .get(invoice.id) as { status: string; funder: string | null } | undefined;
+
+      isChanged =
+        !existing ||
+        existing.status !== invoice.status ||
+        existing.funder !== (invoice.funder ?? null);
+
+      if (isChanged) {
+        const now = Date.now();
+        db.prepare(
+          `INSERT INTO invoices
+           (id, freelancer, payer, amount, due_date, discount_rate,
+            status, funder, funded_at, created_at, updated_at)
+         VALUES
+           (@id, @freelancer, @payer, @amount, @due_date, @discount_rate,
+            @status, @funder, @funded_at, @created_at, @updated_at)
+         ON CONFLICT(id) DO UPDATE SET
+           status    = excluded.status,
+           funder    = excluded.funder,
+           funded_at = excluded.funded_at,
+           updated_at = excluded.updated_at`
+        ).run({
+          ...invoice,
+          funder: invoice.funder ?? null,
+          funded_at: invoice.funded_at ?? null,
+          created_at: now,
+          updated_at: now,
+        });
+      }
+    }
+  })();
+
+  return { isChanged };
+}
+
 // ─── Cursor management ────────────────────────────────────────────────────────
 
 /** Return the last processed ledger sequence, or 0 if never set. */
@@ -614,12 +690,189 @@ export function setCursorLedger(ledger: number): void {
   }
 }
 
-/** Rollback events and cursor to a specific ledger. */
-export function rollbackToLedger(ledger: number): void {
+/** Rollback events and cursor to a specific ledger, reverting invoice state. */
+export function rollbackToLedger(
+  ledger: number,
+  decisionId?: number
+): { eventsRemoved: number; invoicesAffected: number; affectedInvoiceIds: number[] } {
   const db = getDb();
-  db.prepare('DELETE FROM events WHERE ledger > ?').run(ledger);
-  db.prepare('UPDATE cursor SET last_ledger = ? WHERE id = 1').run(ledger);
+  let eventsRemoved = 0;
+  let invoicesAffected = 0;
+  let affectedInvoiceIds: number[] = [];
+
+  db.transaction(() => {
+    // 1. Identify all invoices affected by events after the rollback ledger
+    const removedEventRows = db
+      .prepare('SELECT DISTINCT invoice_id FROM events WHERE ledger > ?')
+      .all(ledger) as { invoice_id: number }[];
+
+    affectedInvoiceIds = removedEventRows.map((r) => r.invoice_id);
+    invoicesAffected = affectedInvoiceIds.length;
+
+    // 2. Revert invoice states or remove them if created on the abandoned fork
+    for (const invoiceId of affectedInvoiceIds) {
+      const remainingEvents = db
+        .prepare(
+          'SELECT event_type FROM events WHERE invoice_id = ? AND ledger <= ? ORDER BY ledger ASC, created_at ASC'
+        )
+        .all(invoiceId, ledger) as { event_type: string }[];
+
+      if (remainingEvents.length === 0) {
+        // Invoice originated on the abandoned fork; remove from SQLite
+        db.prepare('DELETE FROM invoices WHERE id = ?').run(invoiceId);
+      } else {
+        // Derive state from the last valid event on the canonical branch
+        const lastEventType = remainingEvents[remainingEvents.length - 1].event_type;
+        let restoredStatus: InvoiceStatus = 'Pending';
+        let funderReset = false;
+
+        switch (lastEventType) {
+          case 'submitted':
+            restoredStatus = 'Pending';
+            funderReset = true;
+            break;
+          case 'funded':
+            restoredStatus = 'Funded';
+            break;
+          case 'paid':
+            restoredStatus = 'Paid';
+            break;
+          case 'defaulted':
+            restoredStatus = 'Defaulted';
+            break;
+          default:
+            restoredStatus = 'Pending';
+            funderReset = true;
+        }
+
+        if (funderReset) {
+          db.prepare(
+            'UPDATE invoices SET status = ?, funder = NULL, funded_at = NULL, updated_at = ? WHERE id = ?'
+          ).run(restoredStatus, Date.now(), invoiceId);
+        } else {
+          db.prepare(
+            'UPDATE invoices SET status = ?, updated_at = ? WHERE id = ?'
+          ).run(restoredStatus, Date.now(), invoiceId);
+        }
+      }
+    }
+
+    // 3. Delete the rolled-back events from the events table
+    const deleteResult = db.prepare('DELETE FROM events WHERE ledger > ?').run(ledger);
+    eventsRemoved = deleteResult.changes;
+
+    // 4. Update the cursor position in DB
+    db.prepare(
+      `INSERT INTO cursor (id, last_ledger, updated_at)
+       VALUES (1, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET
+         last_ledger = excluded.last_ledger,
+         updated_at  = excluded.updated_at`
+    ).run(ledger, Date.now());
+
+    // 5. Complete fork decision if ID is passed
+    if (decisionId !== undefined) {
+      db.prepare(
+        `UPDATE fork_decisions
+         SET status = 'completed',
+             events_removed = ?,
+             invoices_affected = ?,
+             resolved_at = ?
+         WHERE id = ?`
+      ).run(eventsRemoved, invoicesAffected, Date.now(), decisionId);
+    }
+  })();
+
   try {
     lastProcessedLedger.set(ledger);
+    if (eventsRemoved > 0) {
+      reorgRemovedEventsTotal.inc(eventsRemoved);
+    }
+    if (decisionId !== undefined) {
+      reorgForkDecisionsTotal.inc({ status: 'completed' });
+      reorgPendingDecisions.dec();
+    }
   } catch {}
+
+  return { eventsRemoved, invoicesAffected, affectedInvoiceIds };
+}
+
+// ─── Fork Replacement Decisions ──────────────────────────────────────────────
+
+/** Record a new fork replacement decision when a chain tip rewind is detected. */
+export function recordForkDecision(
+  fromLedger: number,
+  toLedger: number,
+  tipLedger: number
+): number {
+  const db = getDb();
+  const now = Date.now();
+  const info = db
+    .prepare(
+      `INSERT INTO fork_decisions
+       (detected_at, from_ledger, to_ledger, tip_ledger, status)
+       VALUES (?, ?, ?, ?, 'in_progress')`
+    )
+    .run(now, fromLedger, toLedger, tipLedger);
+
+  try {
+    reorgForkDecisionsTotal.inc({ status: 'in_progress' });
+    reorgPendingDecisions.inc();
+  } catch {}
+
+  return Number(info.lastInsertRowid);
+}
+
+/** Complete a fork replacement decision after rollback and state reconciliation. */
+export function completeForkDecision(
+  id: number,
+  eventsRemoved: number,
+  invoicesAffected: number
+): void {
+  const db = getDb();
+  db.prepare(
+    `UPDATE fork_decisions
+     SET status = 'completed',
+         events_removed = ?,
+         invoices_affected = ?,
+         resolved_at = ?
+     WHERE id = ?`
+  ).run(eventsRemoved, invoicesAffected, Date.now(), id);
+
+  try {
+    reorgForkDecisionsTotal.inc({ status: 'completed' });
+    reorgPendingDecisions.dec();
+  } catch {}
+}
+
+/** Abort a fork replacement decision if the cycle aborts due to unstable reorg. */
+export function abortForkDecision(id: number): void {
+  const db = getDb();
+  db.prepare(
+    `UPDATE fork_decisions
+     SET status = 'aborted',
+         resolved_at = ?
+     WHERE id = ?`
+  ).run(Date.now(), id);
+
+  try {
+    reorgForkDecisionsTotal.inc({ status: 'aborted' });
+    reorgPendingDecisions.dec();
+  } catch {}
+}
+
+/** Return any pending in-progress fork decision from a prior crashed run. */
+export function getPendingForkDecision(): ForkDecision | undefined {
+  const db = getDb();
+  return db
+    .prepare('SELECT * FROM fork_decisions WHERE status = ? ORDER BY id ASC LIMIT 1')
+    .get('in_progress') as ForkDecision | undefined;
+}
+
+/** Return recent fork replacement decisions for audit and monitoring. */
+export function getForkDecisions(limit = 50): ForkDecision[] {
+  const db = getDb();
+  return db
+    .prepare('SELECT * FROM fork_decisions ORDER BY id DESC LIMIT ?')
+    .all(limit) as ForkDecision[];
 }
