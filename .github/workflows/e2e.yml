@@ -113,6 +113,37 @@ jobs:
             --evidence=.artifacts/e2e-control-evidence.json \
             --scan-sources
 
+      # Machine-readable copy of the coverage verdict for the evidence bundle.
+      - name: Capture E2E coverage verdict
+        if: always()
+        run: |
+          node scripts/check-e2e-coverage.mjs --report=.artifacts/e2e-results.json --json \
+            > .artifacts/e2e-coverage.json 2>/dev/null || true
+
+      # ── #1254: environment ownership & credential rotation gate ────────────────
+      - name: Check E2E environment ownership & rotation
+        id: ownership
+        if: always()
+        run: |
+          node scripts/check-e2e-environment-rotation.mjs \
+            --manifest=tests/e2e/environment-ownership.json \
+            --report=.artifacts/e2e-ownership.json
+
+      # ── #1255: assemble the release evidence bundle ────────────────────────────
+      # Runs even when an earlier gate failed, so the bundle records *why* the run
+      # was not releasable instead of disappearing with the job.
+      - name: Build E2E release evidence bundle
+        if: always()
+        run: |
+          node scripts/build-e2e-evidence-bundle.mjs \
+            --root=. \
+            --results=.artifacts/e2e-results.json \
+            --ownership=tests/e2e/environment-ownership.json \
+            --rpc-wait=.artifacts/rpc-wait.json \
+            --coverage-report=.artifacts/e2e-coverage.json \
+            --coverage-exit=${{ steps.coverage.outcome == 'success' && '0' || '1' }} \
+            --out=.artifacts/e2e-evidence-bundle.json
+
       - name: Upload E2E evidence artifact
         if: always()
         uses: actions/upload-artifact@v4
