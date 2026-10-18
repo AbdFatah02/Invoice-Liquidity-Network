@@ -25,6 +25,12 @@ export const eventsProcessedTotal = new Counter({
   registers: [registry],
 });
 
+export const duplicateEventsTotal = new Counter({
+  name: 'iln_duplicate_events_total',
+  help: 'Number of duplicate contract events detected and skipped',
+  registers: [registry],
+});
+
 export const invoicesUpsertedTotal = new Counter({
   name: 'iln_invoices_upserted_total',
   help: 'Number of invoices upserted into the DB',

@@ -1,6 +1,6 @@
 import { type rpc, scValToNative } from '@stellar/stellar-sdk';
 import { hasEvent, insertEvent, upsertInvoice, getInvoiceById } from './db';
-import { eventsProcessedTotal, invoicesUpsertedTotal } from './metrics';
+import { eventsProcessedTotal, duplicateEventsTotal, invoicesUpsertedTotal } from './metrics';
 import { invalidateInvoiceCache } from './cache';
 import { fetchInvoice } from './rpc';
 import type { ILNEvent, ILNEventType } from './types';
@@ -28,6 +28,11 @@ const KNOWN_EVENT_TYPES = new Set<ILNEventType>(['submitted', 'funded', 'paid', 
 export async function processEvent(event: rpc.Api.EventResponse): Promise<void> {
   // ── Deduplication ─────────────────────────────────────────────────────────
   if (hasEvent(event.id)) {
+    try {
+      duplicateEventsTotal.inc();
+    } catch {
+      /* metrics failure is non-fatal */
+    }
     return;
   }
 
