@@ -33,6 +33,8 @@
  * owner, recovery path) and docs/e2e-test-scope.md for the audit trail.
  */
 import * as StellarSdk from '@stellar/stellar-sdk';
+import { appendFileSync, mkdirSync } from 'node:fs';
+import { dirname } from 'node:path';
 
 /** Failure raised when an E2E prerequisite is not satisfied. */
 export class E2EPrerequisiteError extends Error {
@@ -120,6 +122,19 @@ export async function evaluatePrerequisites(
     if (!(error instanceof E2EPrerequisiteError)) throw error;
 
     if (skipsAllowed()) {
+      const reasonFile = process.env.E2E_SKIP_REASONS_FILE;
+      if (reasonFile) {
+        mkdirSync(dirname(reasonFile), { recursive: true });
+        appendFileSync(
+          reasonFile,
+          `${JSON.stringify({
+            reason: error.message,
+            prerequisite: error.prerequisite,
+            recovery: error.recovery,
+            recordedAt: new Date().toISOString(),
+          })}\n`
+        );
+      }
       console.warn(
         `[e2e] E2E_ALLOW_SKIP=1 — skipping integration scenarios: ${error.prerequisite}. ` +
           'This escape hatch is forbidden on release branches; scripts/check-e2e-coverage.mjs ' +

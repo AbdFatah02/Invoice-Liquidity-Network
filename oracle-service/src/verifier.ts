@@ -13,6 +13,8 @@ import {
 
 import type {
   IndexerInvoiceHistoryEntry,
+  KYBProvenance,
+  KYBVerificationResult,
   OracleAssessment,
   OracleAssessmentInput,
   OracleConfidenceLevel,
@@ -50,6 +52,13 @@ import {
 const DAY_MS = 24 * 60 * 60 * 1000;
 export const MAX_FRAUD_WINDOW_MS = 30 * DAY_MS;
 export const RAPID_SUCCESSION_WINDOW_MS = 24 * 60 * 60 * 1000;
+/**
+ * How long a recorded KYB decision may be replayed from cache before it must
+ * be revalidated against the provider (issue #1237). A KYB pass is a
+ * point-in-time statement about a legal entity; replaying one forever would
+ * let a delisted business keep funding invoices off an old green check.
+ */
+export const DEFAULT_KYB_DECISION_TTL_MS = 24 * 60 * 60 * 1000;
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
@@ -107,6 +116,29 @@ function average(values: number[]): number {
     return 0;
   }
   return values.reduce((sum, value) => sum + value, 0) / values.length;
+}
+
+/**
+ * Parse a KYB provider's `verifiedAt` into epoch milliseconds.
+ *
+ * Providers report ISO-8601 strings (the mock adapter does, and so do the
+ * vendor APIs it stands in for), which `normalizeTimestampToMs` — built for
+ * ledger-style epoch numbers — rejects. The decision-expiry control (#1237)
+ * keys off this instant, so an unparseable value must fail closed to 0 and
+ * never silently pin a decision as "born now".
+ */
+function kybTimestampToMs(value: string | number | null | undefined): number {
+  if (value === null || value === undefined) {
+    return 0;
+  }
+  if (typeof value === 'number') {
+    return Number.isFinite(value) && value > 0 ? value : 0;
+  }
+  const parsed = Date.parse(value);
+  if (Number.isFinite(parsed)) {
+    return parsed;
+  }
+  return normalizeTimestampToMs(value);
 }
 
 function variance(values: number[]): number {
@@ -582,6 +614,7 @@ export class OracleVerifier {
   private readonly kybProvider?: import('./types').VerificationProvider;
   private readonly requireKyb: boolean;
   private readonly requirePayerSignature: boolean;
+  private readonly kybDecisionTtlMs: number;
   private readonly maxOracleAgeMs: number;
   private readonly externalProvider?: ExternalVerificationProvider;
   private readonly metrics?: OracleMetrics;
@@ -603,6 +636,7 @@ export class OracleVerifier {
     this.kybProvider = options.kybProvider;
     this.requireKyb = options.requireKyb ?? false;
     this.requirePayerSignature = options.requirePayerSignature ?? false;
+    this.kybDecisionTtlMs = options.kybDecisionTtlMs ?? DEFAULT_KYB_DECISION_TTL_MS;
     this.maxOracleAgeMs = options.maxOracleAgeMs ?? 5 * 60 * 1000;
     this.externalProvider = options.externalProvider;
     this.metrics = options.metrics;
@@ -626,6 +660,75 @@ export class OracleVerifier {
   /** Held delta-bound updates awaiting human review, oldest first. */
   getHeldDeltaUpdates(): ReturnType<DeltaBoundsGuard['getHeldUpdates']> {
     return this.deltaGuard.getHeldUpdates();
+  }
+
+  /**
+   * Record who produced the KYB observation this publication rests on (#1236).
+   *
+   * Every verdict carries a provenance block — including `not-configured`, so
+   * the *absence* of a check is as explicit as its presence. `checkedAt` is the
+   * instant of the provider decision being observed, never the replay time,
+   * which is what lets the decision-expiry control (#1237) be evaluated from
+   * the response alone.
+   */
+  private kybProvenanceFor(input: {
+    kybResult?: KYBVerificationResult;
+    prior?: KYBProvenance;
+    observedAtMs: number;
+    nowMs: number;
+    source: 'live' | 'cache';
+  }): KYBProvenance {
+    const status: KYBProvenance['status'] = !this.kybProvider
+      ? 'not-configured'
+      : !input.kybResult
+        ? 'unavailable'
+        : input.kybResult.isVerified
+          ? 'verified'
+          : 'unverified';
+    const provider =
+      input.kybResult?.provider ??
+      input.prior?.provider ??
+      this.kybProvider?.name ??
+      'not-configured';
+    const observedAtMs =
+      Number.isFinite(input.observedAtMs) && input.observedAtMs > 0
+        ? input.observedAtMs
+        : input.nowMs;
+    return {
+      provider,
+      status,
+      source: input.source,
+      checkedAt: new Date(observedAtMs).toISOString(),
+      ageMs: Math.max(0, input.nowMs - observedAtMs),
+    };
+  }
+
+  /**
+   * Whether a published verdict's KYB observation has outlived the decision
+   * TTL and must be revalidated before being replayed (#1237).
+   *
+   * `not-configured` observations and cache rows with no KYB result at all are
+   * never treated as expired: there is no decision to revalidate, and expiring
+   * them would silently disable caching for deployments that run without KYB
+   * on purpose. A decision that *exists* but cannot be dated fails closed to
+   * `expired`: an undatable green check is exactly the artefact this control
+   * exists to stop.
+   */
+  private kybDecisionExpired(response: OracleVerificationResponse, nowMs: number): boolean {
+    const provenance = response.kybProvenance;
+    if (provenance) {
+      if (provenance.status === 'not-configured') {
+        return false;
+      }
+      const checkedAtMs = Date.parse(provenance.checkedAt);
+      return !Number.isFinite(checkedAtMs) || nowMs - checkedAtMs >= this.kybDecisionTtlMs;
+    }
+    if (!response.kybResult) {
+      return false;
+    }
+    const observedMs =
+      kybTimestampToMs(response.kybResult.verifiedAt) || Date.parse(response.generatedAt);
+    return !Number.isFinite(observedMs) || observedMs <= 0 || nowMs - observedMs >= this.kybDecisionTtlMs;
   }
 
   /**
@@ -722,11 +825,36 @@ export class OracleVerifier {
     if (!normalizedRequest.forceRefresh && !this.requireKyb) {
       const cached = await this.cache?.get(cacheKey);
       if (cached) {
-        return {
-          ...cached.response,
-          cacheHit: true,
-          requestId: normalizedRequest.requestId ?? cached.response.requestId,
-        };
+        const nowMs = this.now();
+        if (!this.kybDecisionExpired(cached.response, nowMs)) {
+          // #1236: a replay carries the original observation's identity and
+          // timestamp, re-labelled `cache` with the age it is being served at.
+          const kybProvenance = this.kybProvenanceFor({
+            kybResult: cached.response.kybResult,
+            prior: cached.response.kybProvenance,
+            observedAtMs: cached.response.kybProvenance
+              ? Date.parse(cached.response.kybProvenance.checkedAt)
+              : kybTimestampToMs(cached.response.kybResult?.verifiedAt) ||
+                Date.parse(cached.response.generatedAt),
+            nowMs,
+            source: 'cache',
+          });
+          this.metrics?.kybProvenanceTotal.inc({
+            provider: kybProvenance.provider,
+            status: kybProvenance.status,
+            source: 'cache',
+          });
+          return {
+            ...cached.response,
+            cacheHit: true,
+            kybProvenance,
+            requestId: normalizedRequest.requestId ?? cached.response.requestId,
+          };
+        }
+        // #1237: the stored decision outlived its TTL — re-fetch it rather
+        // than replay it. The counter is the operator-visible signal that the
+        // revalidation path is live.
+        this.metrics?.kybRevalidationsTotal.inc({ reason: 'expired-decision' });
       }
     }
 
@@ -826,6 +954,21 @@ export class OracleVerifier {
         const ageMs = Math.max(0, nowMs - stale.generatedAtMs);
         this.metrics?.degradedResponsesTotal.inc();
         this.metrics?.lastKnownGoodAgeSeconds.set(ageMs / 1000);
+        // #1236: the degraded verdict still reports whose KYB observation it
+        // was originally computed against, marked as replayed, never live.
+        const kybProvenance =
+          stale.response.kybProvenance || stale.response.kybResult
+            ? this.kybProvenanceFor({
+                kybResult: stale.response.kybResult,
+                prior: stale.response.kybProvenance,
+                observedAtMs: stale.response.kybProvenance
+                  ? Date.parse(stale.response.kybProvenance.checkedAt)
+                  : kybTimestampToMs(stale.response.kybResult?.verifiedAt) ||
+                    Date.parse(stale.response.generatedAt),
+                nowMs,
+                source: 'cache',
+              })
+            : undefined;
         return {
           ...stale.response,
           cacheHit: false,
@@ -833,6 +976,7 @@ export class OracleVerifier {
           degraded: true,
           isVerified: false,
           dataAgeMs: ageMs,
+          ...(kybProvenance ? { kybProvenance } : {}),
           evidence: [
             ...stale.response.evidence,
             'Oracle sources unavailable; serving last-known-good cached response (stale)',
@@ -876,7 +1020,7 @@ export class OracleVerifier {
     };
 
     const kybUnavailable =
-      this.requireKyb &&
+      (this.requireKyb || this.kybProvider !== undefined) &&
       (!this.kybProvider || kybResult.status !== 'fulfilled' || !kybResult.value);
     if (kybUnavailable) {
       const rationale =
@@ -892,6 +1036,23 @@ export class OracleVerifier {
         },
       };
     }
+
+    // #1236: every live publication records whose KYB observation it rests
+    // on — provider identity, outcome and decision instant — including the
+    // explicit `not-configured` / `unavailable` cases, so provenance can
+    // never be silently absent from an audited verdict.
+    const kybProvenance = this.kybProvenanceFor({
+      kybResult: kybVerification,
+      observedAtMs: kybTimestampToMs(kybVerification?.verifiedAt),
+      nowMs,
+      source: 'live',
+    });
+    this.metrics?.kybProvenanceTotal.inc({
+      provider: kybProvenance.provider,
+      status: kybProvenance.status,
+      source: 'live',
+    });
+    response = { ...response, kybProvenance };
 
     response = this.applyDeltaBounds(response, request.payer, nowMs, {
       historyOk: historyResult.status === 'fulfilled',
@@ -920,7 +1081,7 @@ export class OracleVerifier {
     }
 
     const publishStart = this.now();
-    if (!this.requireKyb) {
+    if (!this.requireKyb && response.composition?.outcome !== 'rejected-kyb-unavailable') {
       await this.cache?.set(cacheKey, response, ttlSeconds);
     }
     this.observeStage('publish', this.now() - publishStart);

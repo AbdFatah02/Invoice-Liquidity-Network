@@ -61,13 +61,24 @@ export async function processEvent(event: rpc.Api.EventResponse): Promise<void> 
   }
 
   // ── Fetch latest invoice state and upsert ─────────────────────────────────
-  // We always fetch the current state from the RPC regardless of event type.
-  // This handles:
-  //   • `submitted`  → inserts the full invoice with status=Pending
-  //   • `funded`     → updates status=Funded + funder + funded_at
-  //   • `paid`       → updates status=Paid
-  //   • `defaulted`  → updates status=Defaulted
-  const invoice = await fetchInvoice(invoiceId);
+  // We fetch current state from RPC with exponential retry (Issue #1271)
+  let invoice = null;
+  let attempts = 0;
+  const maxAttempts = 3;
+  while (attempts < maxAttempts) {
+    try {
+      invoice = await fetchInvoice(invoiceId);
+      break;
+    } catch (fetchErr) {
+      attempts++;
+      if (attempts >= maxAttempts) {
+        console.error(`[processor] Failed to fetch invoice ${invoiceId} after ${maxAttempts} attempts`, fetchErr);
+        throw fetchErr;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 300 * Math.pow(2, attempts)));
+    }
+  }
+
   if (invoice) {
     const existing = getInvoiceById(invoiceId);
     const isChanged = !existing || existing.status !== invoice.status || existing.funder !== (invoice.funder ?? null);

@@ -93,6 +93,15 @@ Safe harbour does not cover extortion, social engineering, phishing, physical at
 
 ## Bug Bounty and Recognition
 
-ILN does not guarantee bounty payment unless a separate bounty program says otherwise. Valid reports may be eligible for discretionary recognition or reward based on severity, quality of report, and impact.
+ILN runs an active **Pre-Mainnet Bug Bounty Program** to incentivize external security researchers and auditors to identify and responsibly report vulnerabilities before mainnet launch.
 
-Researchers who want public credit may be listed in [`HALL_OF_FAME.md`](./HALL_OF_FAME.md) after the issue is fixed and disclosure is approved.
+- **Reward Tiers:** $100 to $25,000 (paid in USDC or direct transfer) based on severity and impact:
+  - **Critical:** $5,000 – $25,000 (direct risk to funds, contract drainage, or signing bypass)
+  - **High:** $2,000 – $10,000 (fund locks, privilege escalation, persistent exposure)
+  - **Medium:** $500 – $2,500 (conditional exploits, partial information disclosure)
+  - **Low:** $100 – $500 (defense-in-depth weaknesses, minor hardening)
+- **Scope:** Soroban contracts (`ILN-Smart-Contract`), SDK/CLI, Indexer, Notifications, and Frontend (`ILN-Frontend`).
+- **Response SLA:** Initial acknowledgment within 48 hours; triage within 7 days.
+- **Full Program Details:** See [`docs/bug-bounty.md`](./docs/bug-bounty.md) for eligibility, rules of engagement, and payment terms.
+
+Researchers who responsibly disclose verified vulnerabilities will be credited in [`HALL_OF_FAME.md`](./HALL_OF_FAME.md) after remediation and coordinated disclosure.

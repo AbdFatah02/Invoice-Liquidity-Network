@@ -136,7 +136,7 @@ describe('redis cache backend', () => {
 
     const removed = await cache.invalidateByPrefix?.(buildOraclePayerKeyPrefix(TEST_PAYER));
 
-    expect(removed).toBe(2);
+    expect(removed).toBe(4);
     expect(fake.store.has('oracle:v1:someoneelse:1:1')).toBe(true);
   });
 

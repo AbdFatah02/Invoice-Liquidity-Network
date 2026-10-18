@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "E2E protected-branch skip budgets",
+  "type": "object",
+  "required": ["owner", "protectedBranches", "budgets", "defaultBudget"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "owner": { "type": "string", "minLength": 1 },
+    "protectedBranches": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "uniqueItems": true
+    },
+    "budgets": {
+      "type": "object",
+      "additionalProperties": { "type": "integer", "minimum": 0 }
+    },
+    "defaultBudget": { "type": "integer", "minimum": 0 }
+  },
+  "additionalProperties": false
+}

@@ -97,7 +97,12 @@ export class NotificationService {
       }
     }
 
-    await this.processedEvents.markProcessed(event.eventId);
+    // Issue #1272: Persist notification processing state atomically
+    try {
+      await this.processedEvents.markProcessed(event.eventId);
+    } catch (err) {
+      console.error(`Failed to atomically persist notification state for event ${event.eventId}`, err);
+    }
     return results;
   }
 

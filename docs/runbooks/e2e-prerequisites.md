@@ -2,7 +2,7 @@
 
 **Control owner:** release engineering (primary), E2E suite maintainers (secondary)
 **Scope:** cross-package E2E suite in `tests/e2e/` and its CI workflow `.github/workflows/e2e.yml`
-**Related issues:** #1241, #1242, #1243, #1244 (wave-9)
+**Related issues:** #1241–#1248 (wave-9)
 
 ---
 
@@ -28,6 +28,12 @@ run while testing nothing:
   configured RPC.
 - **I3 — Opt-in skips.** Skipping requires `E2E_ALLOW_SKIP=1`, which is forbidden
   on CI and is itself a release-gate failure.
+- **I4 — Deterministic readiness.** The RPC must return two consecutive valid
+  `getHealth` and `getLatestLedger` JSON-RPC responses with a positive,
+  non-regressing ledger sequence before any E2E test starts.
+- **I5 — Protected-branch budgets.** Every branch listed in
+  `e2e-skip-budgets.json` must have an explicit budget. `main` and `dev` both
+  have a zero-skip budget; an omitted protected branch fails closed.
 
 ---
 
@@ -41,16 +47,18 @@ run while testing nothing:
 | Token boundary | `tests/e2e/multi-token.test.ts` | per-token decimals and "no placeholder token ID" boundary |
 | Provisioning | `scripts/provision-e2e-contract.mjs` + `scripts/__tests__/provision-e2e-contract.test.mjs` | a real contract is deployed or verified; placeholders and unknown IDs fail |
 | CI gate | `scripts/check-e2e-coverage.mjs` + `scripts/__tests__/check-e2e-coverage.test.mjs` | zero skipped tests, every required suite executed, no escape hatch |
+| RPC readiness | `scripts/wait-for-stellar-rpc.mjs` | semantic health plus two non-regressing ledger observations; writes `rpc-readiness.json` |
+| DR node provisioning | `scripts/provision-e2e-node.mjs` | idempotent startup/restart and post-operation readiness; writes `e2e-node-provisioning.json` |
 | Deployer | `contract-deployer/deploy.sh` + `scripts/__tests__/contract-deployer.test.mjs` | no placeholder contract ID is ever published to `.docker-output/` |
-| CI evidence | `.github/workflows/e2e.yml` uploads `.artifacts/e2e-results.json` (artifact `e2e-coverage-evidence-<run_id>`) | machine-readable proof the lifecycle suite executed |
+| CI evidence | `.github/workflows/e2e.yml` uploads `.artifacts/` (artifact `e2e-coverage-evidence-<run_id>`) | raw results, readiness/provisioning state, skip reasons, branch policy, owner and recovery path |
 
 ---
 
 ## Run it locally
 
 ```bash
-# 1. Node
-docker compose -f tests/e2e/docker-compose.yml up -d stellar-quickstart
+# 1. Provision the node and prove RPC readiness
+node scripts/provision-e2e-node.mjs
 
 # 2. Build the contract and provision a REAL contract ID (#1241)
 cargo build --target wasm32v1-none --release
@@ -63,7 +71,9 @@ pnpm test:e2e
 # 4. Prove the suite executed, exactly as CI does (#1243)
 mkdir -p .artifacts
 pnpm exec vitest run tests/e2e --reporter=json --outputFile.json=.artifacts/e2e-results.json
-node scripts/check-e2e-coverage.mjs --report=.artifacts/e2e-results.json
+node scripts/check-e2e-coverage.mjs --report=.artifacts/e2e-results.json \
+  --budgets=e2e-skip-budgets.json --branch=main \
+  --evidence=.artifacts/e2e-control-evidence.json
 ```
 
 Expected result: every scenario runs, `Tests … | 0 skipped`, and the gate prints
@@ -93,6 +103,9 @@ set in `.github/workflows/e2e.yml`.
 | `✗ No compiled contract WASM found` | contract not built | `cargo build --target wasm32v1-none --release` |
 | `✗ E2E coverage gate FAILED … [skipped-tests]` | the skip regression returned, or the escape hatch was used | inspect `e2e-coverage-evidence-*` artifact, fix the dependency, re-run without `E2E_ALLOW_SKIP` |
 | `✗ E2E coverage gate FAILED … [missing-file]` | a required E2E file stopped running | confirm the file exists and is matched by `pnpm test:e2e` glob |
+| `[rpc-ready] … invalid … response` | HTTP answered but RPC is not semantically ready | inspect `rpc-readiness.json` and node logs; re-run `node scripts/provision-e2e-node.mjs` |
+| `protected branch … has no explicit skip budget` | branch protection and the versioned policy drifted | add the branch with an explicit reviewed budget to `e2e-skip-budgets.json` |
+| `[missing-skip-reason]` | a permitted local skip supplied no reason | use the prerequisite helper or reporter metadata so the artifact contains cause and recovery |
 | `ERROR: no built WASM found, so no real contract can be deployed.` (deployer) | compose deployer started before the build | build the WASM or pass `EXISTING_CONTRACT_ID` |
 
 ## Signals / monitoring
@@ -102,6 +115,25 @@ set in `.github/workflows/e2e.yml`.
   gate did not execute; treat as a control failure.
 - **Metric equivalent:** the gate summary (`files/tests/passed/skipped/failed`)
   is emitted as JSON with `--json` and is the value to graph over time.
+
+## Audit baseline and result (#1245–#1248)
+
+The audited workflow used a single successful curl as readiness, had no
+branch-owned budget file, did not persist skip causes, and provisioned the node
+with an unverified `docker compose up`. The baseline was therefore **1
+transport-only readiness observation, 0 versioned branch budgets, 0 structured
+skip-reason records, and 0 post-provision readiness assertions**. After this
+change the required values are **2 consecutive semantic RPC observations,
+explicit zero budgets for 2/2 protected branches (`main`, `dev`), one structured
+reason/recovery record per prerequisite skip, and one deterministic readiness
+result after every ensure/restart operation**.
+
+Restart/replay rehearsal:
+
+```bash
+node scripts/provision-e2e-node.mjs --restart \
+  --evidence=.artifacts/e2e-node-restart.json
+```
 
 ## Cross-repository notes
 

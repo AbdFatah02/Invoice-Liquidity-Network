@@ -9,12 +9,12 @@ on:
       - 'packages/**'
       - 'scripts/provision-e2e-contract.mjs'
       - 'scripts/check-e2e-coverage.mjs'
-      - 'scripts/check-e2e-environment-rotation.mjs'
-      - 'scripts/build-e2e-evidence-bundle.mjs'
-      - 'docs/runbooks/e2e-*.md'
+      - 'scripts/wait-for-stellar-rpc.mjs'
+      - 'scripts/provision-e2e-node.mjs'
       - '.github/workflows/e2e.yml'
       - 'pnpm-workspace.yaml'
       - 'package.json'
+      - 'e2e-skip-budgets.json'
       - 'pnpm-lock.yaml'
   pull_request:
     branches: [main, dev]
@@ -24,10 +24,10 @@ on:
       - 'packages/**'
       - 'scripts/provision-e2e-contract.mjs'
       - 'scripts/check-e2e-coverage.mjs'
-      - 'scripts/check-e2e-environment-rotation.mjs'
-      - 'scripts/build-e2e-evidence-bundle.mjs'
-      - 'docs/runbooks/e2e-*.md'
+      - 'scripts/wait-for-stellar-rpc.mjs'
+      - 'scripts/provision-e2e-node.mjs'
       - '.github/workflows/e2e.yml'
+      - 'e2e-skip-budgets.json'
   workflow_dispatch:
 
 permissions:
@@ -47,34 +47,11 @@ jobs:
       - name: Initialize submodules
         run: git submodule update --init --recursive
 
-      - name: Start Local Stellar Node
-        run: docker compose -f tests/e2e/docker-compose.yml up -d stellar-quickstart
+      - name: Provision local Stellar node for E2E and disaster recovery
+        run: node scripts/provision-e2e-node.mjs
 
       - name: Setup pnpm with store cache
         uses: ./.github/actions/setup-pnpm
-
-      # ── #1253: bounded RPC readiness retries, recorded as release evidence ─────
-      # The retry loop is bounded: it never masks a persistently unreachable node,
-      # and the number of attempts is written to .artifacts/rpc-wait.json so the
-      # release evidence bundle (#1255) can prove how the RPC behaved.
-      - name: Wait for Stellar RPC (bounded retries)
-        run: |
-          mkdir -p .artifacts
-          echo "Waiting for Stellar node to be healthy..."
-          attempts=0
-          for i in $(seq 1 60); do
-            attempts=$i
-            if curl -sf http://localhost:8000/soroban/rpc -X POST -H "Content-Type: application/json" -d '{"jsonrpc":"2.0","id":1,"method":"getLatestLedger"}' > /dev/null 2>&1; then
-              echo "Stellar node RPC is ready after ${i} attempt(s)"
-              node -e "require('fs').writeFileSync('.artifacts/rpc-wait.json', JSON.stringify({ attempts: Number(process.argv[1]), ready: true, checked_at: new Date().toISOString() }, null, 2))" "$i"
-              exit 0
-            fi
-            sleep 2
-          done
-          echo "Stellar node failed to start within timeout"
-          node -e "require('fs').writeFileSync('.artifacts/rpc-wait.json', JSON.stringify({ attempts: Number(process.argv[1]), ready: false, checked_at: new Date().toISOString() }, null, 2))" "$attempts"
-          docker compose -f tests/e2e/docker-compose.yml logs
-          exit 1
 
       # ── #1241: provision a REAL deployed contract for the lifecycle suite ──────
       # No placeholder contract ID is ever used (#1242). The script either verifies
@@ -121,14 +98,20 @@ jobs:
         env:
           # Re-provisioned here so the E2E suites never fall back to a placeholder.
           CONTRACT_ID: ${{ steps.provision.outputs.contract-id }}
+          E2E_SKIP_REASONS_FILE: .artifacts/e2e-skip-reasons.jsonl
           # Deliberately NOT setting E2E_ALLOW_SKIP: the skip escape hatch is
           # forbidden on CI, and check-e2e-coverage.mjs fails the run if it is set.
 
       - name: Enforce E2E coverage gate (no skips, every suite executed, no placeholders)
-        id: coverage
         if: always()
         run: |
-          node scripts/check-e2e-coverage.mjs --report=.artifacts/e2e-results.json --scan-sources
+          node scripts/check-e2e-coverage.mjs \
+            --report=.artifacts/e2e-results.json \
+            --budgets=e2e-skip-budgets.json \
+            --branch="${GITHUB_BASE_REF:-$GITHUB_REF_NAME}" \
+            --skip-reasons=.artifacts/e2e-skip-reasons.jsonl \
+            --evidence=.artifacts/e2e-control-evidence.json \
+            --scan-sources
 
       # Machine-readable copy of the coverage verdict for the evidence bundle.
       - name: Capture E2E coverage verdict
@@ -167,4 +150,5 @@ jobs:
         with:
           name: e2e-coverage-evidence-${{ github.run_id }}
           path: .artifacts/
+          include-hidden-files: true
           retention-days: 14

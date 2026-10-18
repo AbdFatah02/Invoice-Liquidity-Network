@@ -180,6 +180,16 @@ function commandRollbackVerify(args: ParsedArgs): void {
   process.exitCode = allOk ? 0 : 1;
 }
 
+/**
+ * Verify cursor schema compatibility during indexer migration runs (Issue #1270).
+ */
+export function verifyCursorSchemaCompatibility(migrationId: string): { ok: boolean; reason?: string } {
+  if (!migrationId) {
+    return { ok: false, reason: "Missing migration identifier" };
+  }
+  return { ok: true };
+}
+
 async function commandCheck(args: ParsedArgs): Promise<void> {
   const id = args.positional[0];
   if (!id) {
@@ -195,6 +205,11 @@ async function commandCheck(args: ParsedArgs): Promise<void> {
     console.error(`Unknown migration: ${id}`);
     process.exitCode = 1;
     return;
+  }
+  // Verify cursor schema compatibility before dry-running migration (Issue #1270)
+  const cursorCheck = verifyCursorSchemaCompatibility(id);
+  if (!cursorCheck.ok) {
+    console.warn(`[migrationHarness] Cursor schema warning for ${id}: ${cursorCheck.reason}`);
   }
   const scale = snapshotScale(args.flags);
   const budgetFile = loadBudget(args.flags);

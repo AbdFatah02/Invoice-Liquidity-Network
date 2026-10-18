@@ -11,6 +11,13 @@ import { MockKYBProvider } from './kyb/mockProvider';
 const PAYER = 'GDVEU3DD4KOFECV66VIHWEZOYX4ZKR3WV27L464SIIPOU2IUI3JCZA57';
 
 describe('MockKYBProvider', () => {
+  it('marks itself as a mock so production wiring can refuse it (#1234)', () => {
+    // The marker travels with the instance however it was constructed —
+    // including with a custom name — which is what the boot guard keys on.
+    expect(new MockKYBProvider().isMock).toBe(true);
+    expect(new MockKYBProvider({ name: 'acme' }).isMock).toBe(true);
+  });
+
   it('verifies an unknown entity by default, deriving names from the address', async () => {
     const provider = new MockKYBProvider();
     const result = await provider.verifyPayer(PAYER);
