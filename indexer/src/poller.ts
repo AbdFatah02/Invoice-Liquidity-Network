@@ -6,6 +6,8 @@ import {
   rollbackToLedger,
   recordForkDecision,
   getPendingForkDecision,
+  incrementForkDecisionAttempts,
+  quarantineForkDecision,
 } from './db';
 import { reorgAbortionsTotal, reorgRollbacksTotal } from './metrics';
 import { invalidateInvoiceCache } from './cache';
@@ -23,12 +25,19 @@ const CONFIRMATION_DEPTH = 10;
 const MAX_REORG_RETRIES = 3;
 
 /**
+ * Maximum recovery attempts allowed for an incomplete re-org decision before
+ * quarantining it to prevent infinite restart crash loops (#1262).
+ */
+export const MAX_REORG_RECOVERY_ATTEMPTS = 3;
+
+/**
  * Run one full polling cycle:
  * - Reconcile any uncompleted fork replacement decision from a prior crashed run (#1258).
+ * - Quarantine incomplete or repeatedly failing re-org recovery to prevent crash loops (#1262).
  * - Determine the start ledger (from DB cursor or config/auto-detect).
  * - Page through ALL available contract events in batches of BATCH_SIZE.
  * - Process + persist each event (deduplication handled in processor).
- * - Advance the stored cursor to the highest ledger seen.
+ * - Advance the stored cursor to the highest ledger seen adhering to monotonicity (#1263).
  *
  * Re-scanning the last processed ledger on every poll is intentional — it
  * protects the ledger boundary against missed events. Deduplication avoids
@@ -44,17 +53,42 @@ const MAX_REORG_RETRIES = 3;
 export async function pollOnce(): Promise<void> {
   let stored = getCursorLedger();
 
-  // ── Reconcile any uncompleted fork decision from a prior restart/crash (#1258) ──
+  // ── Reconcile any uncompleted fork decision from a prior restart/crash (#1258, #1262) ──
   const pendingFork = getPendingForkDecision();
   if (pendingFork) {
-    console.warn(
-      `[poller] Recovering pending fork replacement decision #${pendingFork.id} (from ${pendingFork.from_ledger} to ${pendingFork.to_ledger})`
-    );
-    const { affectedInvoiceIds } = rollbackToLedger(pendingFork.to_ledger, pendingFork.id);
-    if (affectedInvoiceIds.length > 0) {
-      await Promise.all(affectedInvoiceIds.map((id) => invalidateInvoiceCache(id).catch(() => {})));
+    const attempts = incrementForkDecisionAttempts(pendingFork.id);
+    if (attempts > MAX_REORG_RECOVERY_ATTEMPTS) {
+      console.error(
+        `[poller] Fork decision #${pendingFork.id} exceeded maximum recovery attempts (${attempts} > ${MAX_REORG_RECOVERY_ATTEMPTS}). Quarantining incomplete reorg.`
+      );
+      quarantineForkDecision(
+        pendingFork.id,
+        `Exceeded maximum recovery attempts (${attempts} > ${MAX_REORG_RECOVERY_ATTEMPTS})`,
+        'Persistent recovery failure during startup reconciliation'
+      );
+      stored = getCursorLedger();
+    } else {
+      try {
+        console.warn(
+          `[poller] Recovering pending fork replacement decision #${pendingFork.id} (attempt ${attempts}/${MAX_REORG_RECOVERY_ATTEMPTS}, from ${pendingFork.from_ledger} to ${pendingFork.to_ledger})`
+        );
+        const { affectedInvoiceIds } = rollbackToLedger(pendingFork.to_ledger, pendingFork.id);
+        if (affectedInvoiceIds.length > 0) {
+          await Promise.all(affectedInvoiceIds.map((id) => invalidateInvoiceCache(id).catch(() => {})));
+        }
+        stored = pendingFork.to_ledger;
+      } catch (err: unknown) {
+        console.error(`[poller] Error recovering fork decision #${pendingFork.id}:`, err);
+        if (attempts >= MAX_REORG_RECOVERY_ATTEMPTS) {
+          quarantineForkDecision(
+            pendingFork.id,
+            'Rollback failure during recovery',
+            err instanceof Error ? err.stack || err.message : String(err)
+          );
+        }
+        throw err;
+      }
     }
-    stored = pendingFork.to_ledger;
   }
 
   // ── Determine start ledger ────────────────────────────────────────────────
@@ -98,7 +132,9 @@ export async function pollOnce(): Promise<void> {
       if (reorgsThisCycle >= MAX_REORG_RETRIES) {
         try {
           reorgAbortionsTotal.inc();
-        } catch {}
+        } catch {
+          /* metrics failure is non-fatal */
+        }
         throw new Error(
           `[poller] Chain reorg did not stabilise after ${MAX_REORG_RETRIES} attempts (latest: ${latestKnownLedger}, cursor: ${stored})`
         );
@@ -106,7 +142,9 @@ export async function pollOnce(): Promise<void> {
       reorgsThisCycle++;
       try {
         reorgRollbacksTotal.inc();
-      } catch {}
+      } catch {
+        /* metrics failure is non-fatal */
+      }
 
       const boundedRollbackLedger = Math.max(stored - MAX_REORG_ROLLBACK_LEDGERS, latestKnownLedger);
       console.warn(

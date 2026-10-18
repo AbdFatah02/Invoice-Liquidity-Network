@@ -1,7 +1,10 @@
-import { describe, it, expect, vi } from 'vitest';
-import { getCursorLedger, setCursorLedger, rollbackToLedger } from '../src/db';
+import { beforeEach, describe, it, expect, vi } from 'vitest';
+import { createDb, setDb, getCursorLedger, setCursorLedger, rollbackToLedger } from '../src/db';
 
 describe('Crash recovery & cursor rollback tests (#1265 & #1266)', () => {
+  beforeEach(() => {
+    setDb(createDb(':memory:'));
+  });
   it('preserves cursor sequence across crashes and restarts', () => {
     setCursorLedger(1000);
     expect(getCursorLedger()).toBe(1000);

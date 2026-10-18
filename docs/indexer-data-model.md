@@ -255,9 +255,20 @@ CREATE TABLE IF NOT EXISTS fork_decisions (
   to_ledger         INTEGER NOT NULL,
   tip_ledger        INTEGER NOT NULL,
   status            TEXT    NOT NULL,
+  recovery_attempts INTEGER NOT NULL DEFAULT 0,
   events_removed    INTEGER NOT NULL DEFAULT 0,
   invoices_affected INTEGER NOT NULL DEFAULT 0,
   resolved_at       INTEGER
+);
+
+CREATE TABLE IF NOT EXISTS reorg_quarantine (
+  id             INTEGER PRIMARY KEY AUTOINCREMENT,
+  decision_id    INTEGER NOT NULL,
+  from_ledger    INTEGER NOT NULL,
+  to_ledger      INTEGER NOT NULL,
+  reason         TEXT    NOT NULL,
+  error_details  TEXT,
+  quarantined_at INTEGER NOT NULL
 );
 ```
 
@@ -267,6 +278,9 @@ CREATE TABLE IF NOT EXISTS fork_decisions (
 2. **Fork Replacement Persistence**: A `fork_decisions` entry is recorded (`status: 'in_progress'`) prior to rollback for restart safety.
 3. **Removed Event Rollback**: Events with `ledger > targetLedger` are deleted. Invoices created exclusively on the abandoned fork are deleted, and invoices with prior history are restored to their last valid state (`Pending`, `Funded`, etc.).
 4. **Idempotent Replay**: Event application and invoice mutation are executed atomically within SQLite transactions (`applyEventWithInvoice`), ensuring safe replay and restart behavior without state corruption or duplication.
+5. **Incomplete Reorg Quarantine**: In-progress fork decisions track `recovery_attempts`. If rollback fails or exhausts `MAX_REORG_RECOVERY_ATTEMPTS` (3), the decision is transitioned to `'quarantined'` and recorded in `reorg_quarantine`, preventing poller crash loops.
+6. **Cursor Monotonicity Invariants**: `setCursorLedger` guarantees that the stored cursor cannot regress during normal forward indexing. Rewinds are strictly rejected outside of authorized rollback operations.
+7. **Property-Based Verification**: Random property tests (`fast-check`) continuously verify cursor monotonicity, replay idempotency, rollback boundedness, and quarantine isolation under high permutations of inputs.
 
 ---
 

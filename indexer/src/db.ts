@@ -9,9 +9,12 @@ import {
   reorgRemovedEventsTotal,
   reorgForkDecisionsTotal,
   reorgPendingDecisions,
+  reorgQuarantinedTotal,
+  reorgQuarantinedActive,
+  cursorMonotonicityViolationsTotal,
 } from './metrics';
 import { CONFIG } from './config';
-import type { ILNEvent, Invoice, InvoiceStatus, ForkDecision } from './types';
+import type { ILNEvent, Invoice, InvoiceStatus, ForkDecision, QuarantinedReorg } from './types';
 
 // ─── Query logging ────────────────────────────────────────────────────────────
 
@@ -149,9 +152,20 @@ function runMigrations(db: Database.Database): void {
       to_ledger         INTEGER NOT NULL,
       tip_ledger        INTEGER NOT NULL,
       status            TEXT    NOT NULL,
+      recovery_attempts INTEGER NOT NULL DEFAULT 0,
       events_removed    INTEGER NOT NULL DEFAULT 0,
       invoices_affected INTEGER NOT NULL DEFAULT 0,
       resolved_at       INTEGER
+    );
+
+    CREATE TABLE IF NOT EXISTS reorg_quarantine (
+      id             INTEGER PRIMARY KEY AUTOINCREMENT,
+      decision_id    INTEGER NOT NULL,
+      from_ledger    INTEGER NOT NULL,
+      to_ledger      INTEGER NOT NULL,
+      reason         TEXT    NOT NULL,
+      error_details  TEXT,
+      quarantined_at INTEGER NOT NULL
     );
 
     CREATE INDEX IF NOT EXISTS idx_invoices_status     ON invoices(status);
@@ -165,7 +179,18 @@ function runMigrations(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_events_ledger       ON events(ledger);
     CREATE INDEX IF NOT EXISTS idx_events_created_at   ON events(created_at);
     CREATE INDEX IF NOT EXISTS idx_fork_decisions_status ON fork_decisions(status);
+    CREATE INDEX IF NOT EXISTS idx_reorg_quarantine_decision ON reorg_quarantine(decision_id);
   `);
+
+  try {
+    const tableInfo = db.prepare('PRAGMA table_info(fork_decisions)').all() as { name: string }[];
+    const hasAttempts = tableInfo.some((col) => col.name === 'recovery_attempts');
+    if (!hasAttempts && tableInfo.length > 0) {
+      db.exec('ALTER TABLE fork_decisions ADD COLUMN recovery_attempts INTEGER NOT NULL DEFAULT 0;');
+    }
+  } catch {
+    /* migration check failure is non-fatal */
+  }
 }
 
 // ─── Invoice CRUD ─────────────────────────────────────────────────────────────
@@ -669,8 +694,24 @@ export function getCursorUpdatedAt(): number | null {
   return row?.updated_at ?? null;
 }
 
-/** Persist the last processed ledger sequence. */
-export function setCursorLedger(ledger: number): void {
+/**
+ * Persist the last processed ledger sequence.
+ * Enforces cursor monotonicity: normal forward indexing cannot rewind the cursor.
+ * Rewinds are only permitted via explicit authorized rollback (`allowRewind = true`).
+ */
+export function setCursorLedger(ledger: number, allowRewind = false): void {
+  const current = getCursorLedger();
+  if (!allowRewind && ledger < current) {
+    try {
+      cursorMonotonicityViolationsTotal.inc();
+    } catch {
+      /* metrics failure is non-fatal */
+    }
+    throw new Error(
+      `[DB] Cursor monotonicity violation: attempted to set cursor to ${ledger} from ${current} without allowRewind`
+    );
+  }
+
   const updatedAt = Date.now();
   getDb()
     .prepare(
@@ -876,3 +917,79 @@ export function getForkDecisions(limit = 50): ForkDecision[] {
     .prepare('SELECT * FROM fork_decisions ORDER BY id DESC LIMIT ?')
     .all(limit) as ForkDecision[];
 }
+
+/** Increment the recovery attempts counter for an in-progress fork decision. */
+export function incrementForkDecisionAttempts(id: number): number {
+  const db = getDb();
+  db.prepare('UPDATE fork_decisions SET recovery_attempts = recovery_attempts + 1 WHERE id = ?').run(id);
+  const row = db.prepare('SELECT recovery_attempts FROM fork_decisions WHERE id = ?').get(id) as
+    | { recovery_attempts: number }
+    | undefined;
+  return row?.recovery_attempts ?? 1;
+}
+
+/**
+ * Quarantine an incomplete, corrupted, or repeatedly failing fork decision.
+ * Moves the fork decision to 'quarantined' status, logs a structured entry in
+ * `reorg_quarantine`, and decrements pending decisions.
+ */
+export function quarantineForkDecision(
+  id: number,
+  reason: string,
+  errorDetails?: string
+): void {
+  const db = getDb();
+  const now = Date.now();
+
+  db.transaction(() => {
+    const decision = db
+      .prepare('SELECT from_ledger, to_ledger, status FROM fork_decisions WHERE id = ?')
+      .get(id) as { from_ledger: number; to_ledger: number; status: string } | undefined;
+
+    const fromLedger = decision?.from_ledger ?? 0;
+    const toLedger = decision?.to_ledger ?? 0;
+    const wasPending = decision?.status === 'in_progress';
+
+    db.prepare(
+      `UPDATE fork_decisions
+       SET status = 'quarantined',
+           resolved_at = ?
+       WHERE id = ?`
+    ).run(now, id);
+
+    db.prepare(
+      `INSERT INTO reorg_quarantine
+       (decision_id, from_ledger, to_ledger, reason, error_details, quarantined_at)
+       VALUES (?, ?, ?, ?, ?, ?)`
+    ).run(id, fromLedger, toLedger, reason, errorDetails ?? null, now);
+
+    try {
+      reorgForkDecisionsTotal.inc({ status: 'quarantined' });
+      reorgQuarantinedTotal.inc();
+      reorgQuarantinedActive.inc();
+      if (wasPending) {
+        reorgPendingDecisions.dec();
+      }
+    } catch {
+      /* metrics failure is non-fatal */
+    }
+  })();
+}
+
+/** Return all quarantined reorg decisions for audit and operator recovery. */
+export function getQuarantinedReorgs(limit = 50): QuarantinedReorg[] {
+  const db = getDb();
+  return db
+    .prepare('SELECT * FROM reorg_quarantine ORDER BY id DESC LIMIT ?')
+    .all(limit) as QuarantinedReorg[];
+}
+
+/** Check if a given fork decision has been quarantined. */
+export function isReorgQuarantined(decisionId: number): boolean {
+  const db = getDb();
+  const row = db
+    .prepare('SELECT id FROM reorg_quarantine WHERE decision_id = ? LIMIT 1')
+    .get(decisionId);
+  return Boolean(row);
+}
+

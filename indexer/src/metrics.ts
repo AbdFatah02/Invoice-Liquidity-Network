@@ -74,6 +74,24 @@ export const reorgPendingDecisions = new Gauge({
   registers: [registry],
 });
 
+export const reorgQuarantinedTotal = new Counter({
+  name: 'iln_reorg_quarantined_total',
+  help: 'Total number of incomplete or corrupted reorg recoveries quarantined',
+  registers: [registry],
+});
+
+export const reorgQuarantinedActive = new Gauge({
+  name: 'iln_reorg_quarantined_active',
+  help: 'Current number of active quarantined reorg recovery records',
+  registers: [registry],
+});
+
+export const cursorMonotonicityViolationsTotal = new Counter({
+  name: 'iln_cursor_monotonicity_violations_total',
+  help: 'Total number of attempts to rewind the cursor outside of an authorized rollback',
+  registers: [registry],
+});
+
 export const cursorUpdatedAt = new Gauge({
   name: 'iln_cursor_updated_at',
   help: 'Timestamp (ms) when cursor was last updated',
@@ -142,5 +160,7 @@ export function observeHttpRequest(
     httpRequestDuration.observe({ method, route }, durationSeconds);
     // Cost attribution: ~$0.00002 per read request (RPC + DB)
     costUsdTotal.inc({ service: 'indexer', operation: 'http_request' }, 0.00002);
-  } catch {}
+  } catch {
+    /* non-fatal */
+  }
 }
