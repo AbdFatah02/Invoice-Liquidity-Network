@@ -58,3 +58,19 @@ export interface ILNEvent {
   ledger_closed_at: string;
   created_at: number;
 }
+
+// ─── Fork Replacement Decisions ──────────────────────────────────────────────
+
+export type ForkDecisionStatus = 'in_progress' | 'completed' | 'aborted';
+
+export interface ForkDecision {
+  id: number;
+  detected_at: number;
+  from_ledger: number;
+  to_ledger: number;
+  tip_ledger: number;
+  status: ForkDecisionStatus;
+  events_removed: number;
+  invoices_affected: number;
+  resolved_at: number | null;
+}

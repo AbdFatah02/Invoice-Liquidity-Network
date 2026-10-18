@@ -1,7 +1,14 @@
 import type { rpc as StellarRpc } from '@stellar/stellar-sdk';
 import { CONFIG } from './config';
-import { getCursorLedger, setCursorLedger, rollbackToLedger } from './db';
+import {
+  getCursorLedger,
+  setCursorLedger,
+  rollbackToLedger,
+  recordForkDecision,
+  getPendingForkDecision,
+} from './db';
 import { reorgAbortionsTotal, reorgRollbacksTotal } from './metrics';
+import { invalidateInvoiceCache } from './cache';
 import { processEvent } from './processor';
 import { server } from './rpc';
 
@@ -11,12 +18,13 @@ const CONFIRMATION_DEPTH = 10;
 /**
  * Maximum number of same-cycle rollbacks accepted before the cycle is aborted.
  * A node tip that keeps falling below the cursor is a persistent re-org (or a
- * misbehaving RPC) and must not be hidden by an unbounded retry loop (#1256).
+ * misbehaving RPC) and must not be hidden by an unbounded retry loop (#1256, #1259).
  */
 const MAX_REORG_RETRIES = 3;
 
 /**
  * Run one full polling cycle:
+ * - Reconcile any uncompleted fork replacement decision from a prior crashed run (#1258).
  * - Determine the start ledger (from DB cursor or config/auto-detect).
  * - Page through ALL available contract events in batches of BATCH_SIZE.
  * - Process + persist each event (deduplication handled in processor).
@@ -31,10 +39,23 @@ const MAX_REORG_RETRIES = 3;
  * events above the new tip) back to the tip and re-scan in the same cycle. The
  * re-scan is bounded by `MAX_REORG_RETRIES`; a re-org that never stabilises is
  * surfaced as an error rather than silently trusting a cursor above the chain
- * head (#1256).
+ * head (#1256, #1259).
  */
 export async function pollOnce(): Promise<void> {
   let stored = getCursorLedger();
+
+  // ── Reconcile any uncompleted fork decision from a prior restart/crash (#1258) ──
+  const pendingFork = getPendingForkDecision();
+  if (pendingFork) {
+    console.warn(
+      `[poller] Recovering pending fork replacement decision #${pendingFork.id} (from ${pendingFork.from_ledger} to ${pendingFork.to_ledger})`
+    );
+    const { affectedInvoiceIds } = rollbackToLedger(pendingFork.to_ledger, pendingFork.id);
+    if (affectedInvoiceIds.length > 0) {
+      await Promise.all(affectedInvoiceIds.map((id) => invalidateInvoiceCache(id).catch(() => {})));
+    }
+    stored = pendingFork.to_ledger;
+  }
 
   // ── Determine start ledger ────────────────────────────────────────────────
   let startLedger: number;
@@ -74,9 +95,35 @@ export async function pollOnce(): Promise<void> {
 
     const MAX_REORG_ROLLBACK_LEDGERS = 100;
     if (latestKnownLedger < stored) {
+      if (reorgsThisCycle >= MAX_REORG_RETRIES) {
+        try {
+          reorgAbortionsTotal.inc();
+        } catch {}
+        throw new Error(
+          `[poller] Chain reorg did not stabilise after ${MAX_REORG_RETRIES} attempts (latest: ${latestKnownLedger}, cursor: ${stored})`
+        );
+      }
+      reorgsThisCycle++;
+      try {
+        reorgRollbacksTotal.inc();
+      } catch {}
+
       const boundedRollbackLedger = Math.max(stored - MAX_REORG_ROLLBACK_LEDGERS, latestKnownLedger);
-      console.warn(`[poller] Chain reorg detected! Latest ledger (${latestKnownLedger}) is behind cursor (${stored}). Rolling back to bounded ledger ${boundedRollbackLedger}...`);
-      rollbackToLedger(boundedRollbackLedger);
+      console.warn(
+        `[poller] Chain reorg detected! Latest ledger (${latestKnownLedger}) is behind cursor (${stored}). Rolling back to bounded ledger ${boundedRollbackLedger}...`
+      );
+
+      // Persist fork replacement decision for restart safety (#1258)
+      const decisionId = recordForkDecision(stored, boundedRollbackLedger, latestKnownLedger);
+
+      // Reconcile cursor and rollback removed events and invoices (#1257, #1259)
+      const { affectedInvoiceIds } = rollbackToLedger(boundedRollbackLedger, decisionId);
+
+      // Invalidate caches for affected invoices
+      if (affectedInvoiceIds.length > 0) {
+        await Promise.all(affectedInvoiceIds.map((id) => invalidateInvoiceCache(id).catch(() => {})));
+      }
+
       stored = boundedRollbackLedger;
       startLedger = boundedRollbackLedger;
       highestEventLedger = boundedRollbackLedger;

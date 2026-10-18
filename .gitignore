@@ -114,3 +114,8 @@ TODO.md
 
 test-results/
 playwright-report/
+
+# SQLite databases
+*.db
+*.db-shm
+*.db-wal
