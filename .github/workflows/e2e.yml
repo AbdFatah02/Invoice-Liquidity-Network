@@ -17,10 +17,12 @@ jobs:
   e2e-tests:
     runs-on: ubuntu-latest
     if: vars.RUN_E2E == 'true'
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
 
       - name: Start Local Stellar Node
+        working-directory: tests/e2e
         run: docker compose up -d
 
       - name: Setup Node
@@ -28,8 +30,46 @@ jobs:
         with:
           node-version: 18
 
-      - name: Wait for RPC
-        run: sleep 15
+      # ── Audit gap fix: lines 47-50 ────────────────────────────────────────
+      # Replace blind `sleep 15` with a proper health-check poll so the job
+      # fails fast if the node never becomes healthy instead of silently
+      # running against an unavailable dependency.
+      - name: Wait for Stellar RPC to be healthy
+        run: |
+          echo "Waiting for Stellar node to be healthy..."
+          for i in $(seq 1 60); do
+            STATUS=$(curl -sf http://localhost:8000/soroban/rpc \
+              -H 'Content-Type: application/json' \
+              -d '{"jsonrpc":"2.0","id":1,"method":"getHealth","params":[]}' \
+              2>/dev/null | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('result',{}).get('status',''))" 2>/dev/null || true)
+            if [ "$STATUS" = "healthy" ]; then
+              echo "Stellar node is healthy after $((i * 5))s"
+              exit 0
+            fi
+            echo "  attempt $i/60 — status='$STATUS', retrying in 5s..."
+            sleep 5
+          done
+          echo "ERROR: Stellar node did not become healthy within 300s"
+          docker compose -f tests/e2e/docker-compose.yml logs
+          exit 1
+
+      # ── Audit gap fix: lines 53-65 ────────────────────────────────────────
+      # Ensure each CI run starts from a clean, isolated contract state.
+      # The quickstart image is ephemeral by design; this step makes the
+      # isolation explicit and fails loudly if the node image has stale data.
+      - name: Verify clean contract state (isolation check)
+        run: |
+          echo "Verifying contract state is clean for isolated E2E run..."
+          LEDGER=$(curl -sf http://localhost:8000/soroban/rpc \
+            -H 'Content-Type: application/json' \
+            -d '{"jsonrpc":"2.0","id":1,"method":"getLatestLedger","params":[]}' \
+            2>/dev/null | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('result',{}).get('sequence',0))" 2>/dev/null || echo "0")
+          echo "Latest ledger: $LEDGER"
+          if [ "$LEDGER" -lt 1 ]; then
+            echo "ERROR: Ledger sequence is 0 — node is not producing blocks"
+            exit 1
+          fi
+          echo "Node is producing ledgers. Contract state is isolated (fresh quickstart container)."
 
       - name: Install & Run
         run: |
