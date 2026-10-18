@@ -72,28 +72,14 @@ export async function pollOnce(): Promise<void> {
     const response = await server.getEvents(request);
     latestKnownLedger = response.latestLedger;
 
+    const MAX_REORG_ROLLBACK_LEDGERS = 100;
     if (latestKnownLedger < stored) {
-      reorgsThisCycle += 1;
-      if (reorgsThisCycle > MAX_REORG_RETRIES) {
-        // Persistent re-org (or a misbehaving node): stop advancing and surface
-        // the failure. The cursor stays at the last known-good ledger.
-        reorgAbortionsTotal.inc();
-        throw new Error(
-          `[poller] Chain reorg did not stabilise after ${MAX_REORG_RETRIES} rollbacks ` +
-            `(cursor=${stored}, latest=${latestKnownLedger}). Aborting this cycle; ` +
-            'cursor remains at the last known-good ledger.'
-        );
-      }
-
-      console.warn(
-        `[poller] Chain reorg detected! Latest ledger (${latestKnownLedger}) is behind ` +
-          `cursor (${stored}). Rolling back (attempt ${reorgsThisCycle}/${MAX_REORG_RETRIES}).`
-      );
-      rollbackToLedger(latestKnownLedger);
-      reorgRollbacksTotal.inc();
-      stored = latestKnownLedger;
-      startLedger = latestKnownLedger;
-      highestEventLedger = latestKnownLedger;
+      const boundedRollbackLedger = Math.max(stored - MAX_REORG_ROLLBACK_LEDGERS, latestKnownLedger);
+      console.warn(`[poller] Chain reorg detected! Latest ledger (${latestKnownLedger}) is behind cursor (${stored}). Rolling back to bounded ledger ${boundedRollbackLedger}...`);
+      rollbackToLedger(boundedRollbackLedger);
+      stored = boundedRollbackLedger;
+      startLedger = boundedRollbackLedger;
+      highestEventLedger = boundedRollbackLedger;
       paginationCursor = undefined;
       continue;
     }
