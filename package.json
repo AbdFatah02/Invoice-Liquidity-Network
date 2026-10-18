@@ -6,6 +6,7 @@
     "test:coverage": "turbo run test:coverage",
     "test:checklist": "node --test scripts/__tests__/mainnet-checklist-parser.test.js",
     "test:compatibility": "vitest run scripts/__tests__/check-compatibility.test.ts",
+    "test:e2e": "vitest run --config vitest.e2e.config.ts",
     "test:audit": "node --test scripts/__tests__/dependency-audit.test.js",
     "test:load": "ts-node --esm scripts/load-test.ts",
     "test:load:indexer": "ts-node --esm scripts/load-test-indexer.ts",
